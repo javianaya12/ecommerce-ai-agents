@@ -5,12 +5,7 @@ def load_sales_data():
 
     ventas_mes = (df["cantidad"] * df["precio"]).sum()
     productos_vendidos = df["cantidad"].sum()
-
-    producto_top = (
-        df.groupby("producto")["cantidad"]
-        .sum()
-        .idxmax()
-    )
+    producto_top = df.groupby("producto")["cantidad"].sum().idxmax()
 
     return {
         "ventas_mes": ventas_mes,
