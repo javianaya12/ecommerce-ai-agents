@@ -1,29 +1,21 @@
-def sales_agent(data):
-    ventas = data["ventas_mes"]
-    productos = data["productos_vendidos"]
+def analyze_sales(data):
+    ventas_mes = data["ventas_mes"]
+    productos_vendidos = data["productos_vendidos"]
     producto_top = data["producto_top"]
 
-    if productos <= 0:
-        return "No hay productos vendidos para analizar."
-
-    ticket_promedio = ventas / productos
-
-    if ventas >= 100000:
+    if ventas_mes > 100000:
         tendencia = "Ventas fuertes"
-        recomendacion = "Mantener impulso comercial y revisar inventario del producto top."
-    elif ventas >= 50000:
-        tendencia = "Ventas medias"
-        recomendacion = "Empujar promociones en categorías con mejor margen."
     else:
-        tendencia = "Ventas bajas"
-        recomendacion = "Revisar campañas, conversión y productos con baja rotación."
+        tendencia = "Ventas moderadas"
 
-    prediccion_siguiente_mes = ventas * 1.10
+    prediccion = ventas_mes * 1.10
 
-    return f"""Ventas del mes: {ventas}
-Productos vendidos: {productos}
+    return f"""
+=== SALES ANALYSIS ===
+Ventas del mes: {ventas_mes}
+Productos vendidos: {productos_vendidos}
 Producto top: {producto_top}
-Ticket promedio: {ticket_promedio:.2f}
 Tendencia: {tendencia}
-Predicción siguiente mes: {prediccion_siguiente_mes:.2f}
-Recomendación: {recomendacion}"""
+Predicción siguiente mes: {prediccion:.2f}
+Recomendación: Mantener impulso comercial y revisar inventario del producto top.
+"""
