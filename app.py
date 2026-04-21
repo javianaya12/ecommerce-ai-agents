@@ -11,6 +11,7 @@ st.write("Sube tu archivo Excel")
 
 uploaded_file = st.file_uploader("Upload", type=["xlsx"])
 
+
 def create_pdf_report(total_sales, total_units, top_product, prediction):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
@@ -21,13 +22,14 @@ def create_pdf_report(total_sales, total_units, top_product, prediction):
 
     pdf.setFont("Helvetica", 12)
     pdf.drawString(50, 710, f"Ventas totales: ${total_sales:,.2f}")
-    pdf.drawString(50, 690, f"Unidades vendidas: {int(total_units)}")
+    pdf.drawString(50, 690, f"Unidades vendidas/Pedidos: {int(total_units)}")
     pdf.drawString(50, 670, f"Producto top: {top_product}")
-    pdf.drawString(50, 650, f"Predicción siguiente periodo: ${prediction:,.2f}")
+    pdf.drawString(50, 650, f"Prediccion siguiente periodo: ${prediction:,.2f}")
 
     pdf.save()
     buffer.seek(0)
     return buffer
+
 
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
@@ -53,33 +55,49 @@ if uploaded_file is not None:
         rename_map["unidades"] = "units_sold"
     if "cantidad" in df.columns:
         rename_map["cantidad"] = "units_sold"
+    if "pedidos" in df.columns:
+        rename_map["pedidos"] = "units_sold"
 
     df = df.rename(columns=rename_map)
 
     required_columns = ["date", "product", "sales", "units_sold"]
-
     missing = [col for col in required_columns if col not in df.columns]
 
     if missing:
         st.error(f"Faltan estas columnas en el archivo: {missing}")
-        st.info("Tu Excel debe tener estas columnas: date, product, sales, units_sold")
-    else:
-        total_sales = df["sales"].sum()
-        total_units = df["units_sold"].sum()
-        top_product = df.groupby("product")["sales"].sum().idxmax()
-        prediction = total_sales * 1.10  # predicción simple +10%
-
-        st.subheader("Resultados")
-        st.metric("Ventas totales", f"${total_sales:,.2f}")
-        st.metric("Unidades vendidas", int(total_units))
-        st.metric("Producto top", top_product)
-        st.metric("Predicción siguiente periodo", f"${prediction:,.2f}")
-
-        pdf_file = create_pdf_report(total_sales, total_units, top_product, prediction)
-
-        st.download_button(
-            label="Descargar reporte PDF",
-            data=pdf_file,
-            file_name="reporte_ecommerce.pdf",
-            mime="application/pdf"
+        st.info(
+            "Tu Excel debe tener estas columnas o equivalentes: "
+            "date/fecha, product/producto, sales/ventas/ingresos, "
+            "units_sold/unidades/cantidad/pedidos"
         )
+    else:
+        # Convertir tipos por seguridad
+        df["sales"] = pd.to_numeric(df["sales"], errors="coerce")
+        df["units_sold"] = pd.to_numeric(df["units_sold"], errors="coerce")
+        df["product"] = df["product"].astype(str)
+
+        # Eliminar filas inválidas
+        df = df.dropna(subset=["sales", "units_sold", "product"])
+
+        if df.empty:
+            st.error("El archivo no tiene datos válidos después de limpiar columnas numéricas.")
+        else:
+            total_sales = df["sales"].sum()
+            total_units = df["units_sold"].sum()
+            top_product = df.groupby("product")["sales"].sum().idxmax()
+            prediction = total_sales * 1.10  # predicción simple +10%
+
+            st.subheader("Resultados")
+            st.metric("Ventas totales", f"${total_sales:,.2f}")
+            st.metric("Unidades vendidas / pedidos", int(total_units))
+            st.metric("Producto top", top_product)
+            st.metric("Predicción siguiente periodo", f"${prediction:,.2f}")
+
+            pdf_file = create_pdf_report(total_sales, total_units, top_product, prediction)
+
+            st.download_button(
+                label="Descargar reporte PDF",
+                data=pdf_file,
+                file_name="reporte_ecommerce.pdf",
+                mime="application/pdf"
+            )
