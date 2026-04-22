@@ -389,63 +389,7 @@ def build_sla_summary(df):
     return base.sort_values("order").drop(columns=["order"])
 
 
-def compare_periods(df):
-    tmp = df.dropna(subset=["analysis_datetime"]).copy()
-    if tmp.empty:
-        return None
-
-    min_dt = tmp["analysis_datetime"].min()
-    max_dt = tmp["analysis_datetime"].max()
-    if pd.isna(min_dt) or pd.isna(max_dt):
-        return None
-
-    total_days = max((max_dt.date() - min_dt.date()).days + 1, 1)
-    current_start = max_dt.normalize() - pd.Timedelta(days=total_days - 1)
-    current_end = max_dt.normalize() + pd.Timedelta(days=1)
-
-    prev_end = current_start
-    prev_start = prev_end - pd.Timedelta(days=total_days)
-
-    current_df = tmp[(tmp["analysis_datetime"] >= current_start) & (tmp["analysis_datetime"] < current_end)].copy()
-    previous_df = tmp[(tmp["analysis_datetime"] >= prev_start) & (tmp["analysis_datetime"] < prev_end)].copy()
-
-    def summarize(block):
-        if block.empty:
-            return {"orders": 0, "shipments": 0, "units": 0, "delivered_rate": 0, "cancel_rate": 0}
-        return {
-            "orders": safe_nunique(block["order_id"]),
-            "shipments": safe_nunique(block["shipment_id"]),
-            "units": float(block["qty"].sum()),
-            "delivered_rate": float(block["is_delivered"].mean() * 100),
-            "cancel_rate": float(block["is_cancelled"].mean() * 100),
-        }
-
-    current_summary = summarize(current_df)
-    previous_summary = summarize(previous_df)
-
-    comp = []
-    for metric in ["orders", "shipments", "units", "delivered_rate", "cancel_rate"]:
-        current_val = current_summary[metric]
-        prev_val = previous_summary[metric]
-        delta_abs = current_val - prev_val
-        delta_pct = ((delta_abs / prev_val) * 100) if prev_val not in [0, 0.0] else np.nan
-        comp.append({
-            "metric": metric,
-            "current": current_val,
-            "previous": prev_val,
-            "delta_abs": delta_abs,
-            "delta_pct": delta_pct
-        })
-
-    return {
-        "days": total_days,
-        "current_range": f"{current_start.date()} a {max_dt.date()}",
-        "previous_range": f"{prev_start.date()} a {(prev_end - pd.Timedelta(days=1)).date()}",
-        "table": pd.DataFrame(comp)
-    }
-
-
-def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_perf, period_comp):
+def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_perf):
     insights = []
 
     if not warehouse_perf.empty:
@@ -475,16 +419,6 @@ def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_pe
     sla_gt48 = (df["sla_bucket"] == ">48 h").mean() * 100 if len(df) else 0
     if sla_gt48 > 20:
         insights.append(f"El {sla_gt48:.1f}% de los registros cae en un SLA mayor a 48 horas.")
-
-    if period_comp is not None and not period_comp["table"].empty:
-        row = period_comp["table"][period_comp["table"]["metric"] == "orders"]
-        if not row.empty:
-            delta = row.iloc[0]["delta_pct"]
-            if pd.notna(delta):
-                if delta > 10:
-                    insights.append(f"Los pedidos crecieron {delta:.1f}% frente al periodo anterior.")
-                elif delta < -10:
-                    insights.append(f"Los pedidos cayeron {abs(delta):.1f}% frente al periodo anterior.")
 
     return insights
 
@@ -571,7 +505,7 @@ def add_wrapped_text(c, text, x, y, max_width, font_name="Helvetica", font_size=
     return y
 
 
-def make_pdf(summary_dict, insights, recommendations, period_comp, sla_summary):
+def make_pdf(summary_dict, insights, recommendations, sla_summary):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -616,18 +550,9 @@ def make_pdf(summary_dict, insights, recommendations, period_comp, sla_summary):
     c.setFont("Helvetica-Bold", 18)
     c.drawString(40, height - 50, "Imporey Internacional")
     c.setFont("Helvetica", 11)
-    c.drawString(40, height - 70, "Comparativos, SLA y recomendaciones")
+    c.drawString(40, height - 70, "SLA y recomendaciones")
 
     y = height - 120
-    if period_comp is not None:
-        draw_section_title(c, 40, y, "Comparativo de periodos")
-        y -= 20
-        c.setFillColor(HexColor("#374151"))
-        c.setFont("Helvetica", 10)
-        c.drawString(40, y, f"Periodo actual: {period_comp['current_range']}")
-        y -= 14
-        c.drawString(40, y, f"Periodo anterior: {period_comp['previous_range']}")
-        y -= 20
 
     if sla_summary is not None and not sla_summary.empty:
         draw_section_title(c, 40, y, "Distribución SLA")
@@ -743,31 +668,9 @@ if uploaded_file is not None:
         carrier_perf = build_carrier_performance(filtered)
         channel_perf = build_channel_performance(filtered)
         product_perf = build_product_performance(filtered)
-        period_comp = compare_periods(filtered)
 
-        insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, period_comp)
+        insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf)
         recommendations = generate_recommendations(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf)
-
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.subheader("Comparativo de periodos")
-        if period_comp is not None:
-            st.write(f"**Periodo actual:** {period_comp['current_range']}")
-            st.write(f"**Periodo anterior comparable:** {period_comp['previous_range']}")
-            comp_show = period_comp["table"].copy()
-            comp_show["Métrica"] = comp_show["metric"].map({
-                "orders": "Pedidos",
-                "shipments": "Envíos",
-                "units": "Unidades",
-                "delivered_rate": "% Entregado",
-                "cancel_rate": "% Cancelado"
-            })
-            comp_show["Actual"] = comp_show.apply(lambda r: fmt_pct(r["current"]) if "rate" in r["metric"] else fmt_int(r["current"]), axis=1)
-            comp_show["Anterior"] = comp_show.apply(lambda r: fmt_pct(r["previous"]) if "rate" in r["metric"] else fmt_int(r["previous"]), axis=1)
-            comp_show["Variación"] = comp_show["delta_pct"].apply(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
-            st.dataframe(comp_show[["Métrica", "Actual", "Anterior", "Variación"]], use_container_width=True)
-        else:
-            st.info("No hay suficiente información de fechas para comparar periodos.")
-        st.markdown("</div>", unsafe_allow_html=True)
 
         col_a, col_b = st.columns(2)
 
@@ -979,7 +882,7 @@ if uploaded_file is not None:
             "Tiempo ciclo prom.": fmt_hours(avg_cycle_time),
         }
 
-        pdf_buffer = make_pdf(summary_dict, insights, recommendations, period_comp, sla_summary)
+        pdf_buffer = make_pdf(summary_dict, insights, recommendations, sla_summary)
 
         st.download_button(
             label="Descargar PDF avanzado",
@@ -991,4 +894,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Ocurrió un error al procesar el archivo: {e}")
 else:
-    st.info("Sube un archivo Excel para comenzar.")
+    st.info("Sube tu archivo Excel para comenzar.")
