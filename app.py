@@ -1,12 +1,15 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import simpleSplit
 from reportlab.lib.colors import HexColor
+import plotly.express as px
+import plotly.graph_objects as go
+
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 st.set_page_config(
     page_title="Imporey Internacional | Dashboard Avanzado",
@@ -19,52 +22,96 @@ st.set_page_config(
 st.markdown("""
 <style>
 .main {
-    background-color: #f7f9fc;
+    background: #f5f7fb;
 }
 .block-container {
-    padding-top: 1.5rem;
+    padding-top: 1.2rem;
     padding-bottom: 2rem;
+    max-width: 1500px;
+}
+.hero-box {
+    background: linear-gradient(135deg, #0B1F3A 0%, #173B63 100%);
+    color: white;
+    padding: 28px 30px;
+    border-radius: 22px;
+    margin-bottom: 18px;
+    box-shadow: 0 10px 30px rgba(11,31,58,0.18);
+}
+.hero-title {
+    font-size: 2.1rem;
+    font-weight: 800;
+    margin-bottom: 4px;
+}
+.hero-subtitle {
+    font-size: 1rem;
+    color: #DDE7F3;
 }
 .kpi-card {
     background: white;
-    border-radius: 14px;
-    padding: 18px 20px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-    border-left: 6px solid #0B1F3A;
-    margin-bottom: 12px;
+    border-radius: 18px;
+    padding: 18px 18px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    border: 1px solid #edf1f7;
+    min-height: 108px;
 }
-.kpi-title {
-    color: #64748B;
-    font-size: 0.9rem;
+.kpi-label {
+    color: #6b7280;
+    font-size: 0.92rem;
     margin-bottom: 8px;
 }
 .kpi-value {
     color: #0B1F3A;
-    font-size: 1.8rem;
-    font-weight: 700;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.1;
 }
-.section-box {
+.kpi-sub {
+    color: #94a3b8;
+    font-size: 0.82rem;
+    margin-top: 8px;
+}
+.section-card {
     background: white;
-    border-radius: 14px;
-    padding: 16px 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    border-radius: 18px;
+    padding: 18px 18px 12px 18px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    border: 1px solid #edf1f7;
     margin-bottom: 18px;
 }
-.hero-box {
-    background: linear-gradient(135deg, #0B1F3A 0%, #163A63 100%);
-    color: white;
-    padding: 24px 28px;
-    border-radius: 18px;
-    margin-bottom: 20px;
+.small-chip {
+    display: inline-block;
+    background: #eef4ff;
+    color: #184a8c;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    margin-right: 8px;
+    margin-bottom: 8px;
 }
-.hero-title {
-    font-size: 2rem;
+.metric-mini {
+    background: #f8fafc;
+    border: 1px solid #edf2f7;
+    padding: 12px 14px;
+    border-radius: 14px;
+}
+.metric-mini-title {
+    color: #64748b;
+    font-size: 0.82rem;
+    margin-bottom: 4px;
+}
+.metric-mini-value {
+    color: #0f172a;
+    font-size: 1.25rem;
     font-weight: 700;
-    margin-bottom: 6px;
 }
-.hero-subtitle {
-    font-size: 1rem;
-    color: #D9E3F0;
+div[data-baseweb="tab-list"] {
+    gap: 10px;
+}
+button[data-baseweb="tab"] {
+    border-radius: 12px !important;
+    padding: 10px 14px !important;
+    background: white !important;
+    border: 1px solid #e5e7eb !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -165,6 +212,25 @@ def safe_nunique(series):
     return series.dropna().nunique()
 
 
+def render_kpi_card(title, value, subtitle=""):
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">{title}</div>
+        <div class="kpi-value">{value}</div>
+        <div class="kpi-sub">{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_mini_metric(title, value):
+    st.markdown(f"""
+    <div class="metric-mini">
+        <div class="metric-mini-title">{title}</div>
+        <div class="metric-mini-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def normalize_dataframe(df):
     df = df.copy()
     df = df.rename(columns=COLUMN_MAP)
@@ -190,8 +256,8 @@ def normalize_dataframe(df):
     df["is_picked"] = np.where(df["picked_flag"] > 0, 1, 0)
     df["is_cancelled"] = np.where(df["status"].str.lower().str.contains("cancel", na=False), 1, 0)
 
-    df["analysis_date"] = df["created_on"].dt.date
-    df["analysis_datetime"] = df["created_on"]
+    df["analysis_date"] = pd.to_datetime(df["created_on"]).dt.date
+    df["analysis_datetime"] = pd.to_datetime(df["created_on"])
 
     df["time_spent_hours"] = df["time_spent"].apply(parse_duration_to_hours)
     df["cycle_time_hours"] = (df["delivery_finished"] - df["created_on"]).dt.total_seconds() / 3600
@@ -203,6 +269,7 @@ def normalize_dataframe(df):
     df["pack_time_hours"] = np.where(df["pack_time_hours"] < 0, np.nan, df["pack_time_hours"])
 
     df["sla_bucket"] = df["cycle_time_hours"].apply(classify_sla_bucket)
+
     return df
 
 
@@ -244,7 +311,7 @@ def calc_score(df_base, volume_col):
 
 
 def build_daily_operations(df):
-    return (
+    daily = (
         df.groupby("analysis_date", dropna=True)
         .agg(
             orders=("order_id", pd.Series.nunique),
@@ -257,37 +324,81 @@ def build_daily_operations(df):
         .reset_index()
         .sort_values("analysis_date")
     )
+    daily["analysis_date"] = pd.to_datetime(daily["analysis_date"])
+    return daily
 
 
 def build_forecast_next_period(daily_ops, forecast_days=30):
-    if daily_ops.empty or len(daily_ops) < 2:
-        return pd.DataFrame()
+    if daily_ops.empty or len(daily_ops) < 14:
+        return pd.DataFrame(), "insuficiente_historial"
 
-    tmp = daily_ops.copy()
-    tmp["analysis_date"] = pd.to_datetime(tmp["analysis_date"])
-    tmp = tmp.sort_values("analysis_date").reset_index(drop=True)
+    ts = daily_ops[["analysis_date", "orders"]].copy()
+    ts = ts.dropna().sort_values("analysis_date")
+    ts = ts.set_index("analysis_date").asfreq("D")
+    ts["orders"] = ts["orders"].fillna(0)
 
-    x = np.arange(len(tmp))
-    y = tmp["orders"].astype(float).values
+    train = ts["orders"].astype(float)
+
+    # Selección automática simple del modelo
+    seasonal_periods = 7 if len(train) >= 28 else None
 
     try:
-        slope, intercept = np.polyfit(x, y, 1)
+        if seasonal_periods:
+            model = ExponentialSmoothing(
+                train,
+                trend="add",
+                seasonal="add",
+                seasonal_periods=seasonal_periods,
+                initialization_method="estimated"
+            ).fit(optimized=True)
+            model_name = "Holt-Winters (tendencia + estacionalidad semanal)"
+        else:
+            model = ExponentialSmoothing(
+                train,
+                trend="add",
+                seasonal=None,
+                initialization_method="estimated"
+            ).fit(optimized=True)
+            model_name = "Exponential Smoothing con tendencia"
     except Exception:
-        return pd.DataFrame()
+        # fallback
+        x = np.arange(len(train))
+        y = train.values
+        try:
+            slope, intercept = np.polyfit(x, y, 1)
+            future_x = np.arange(len(train), len(train) + forecast_days)
+            future_y = slope * future_x + intercept
+            future_y = np.where(future_y < 0, 0, future_y)
 
-    future_x = np.arange(len(tmp), len(tmp) + forecast_days)
-    future_y = slope * future_x + intercept
-    future_y = np.where(future_y < 0, 0, future_y)
+            future_dates = pd.date_range(train.index.max() + pd.Timedelta(days=1), periods=forecast_days, freq="D")
+            forecast_df = pd.DataFrame({
+                "analysis_date": future_dates,
+                "forecast_orders": future_y
+            })
 
-    last_date = tmp["analysis_date"].max()
-    future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=forecast_days, freq="D")
+            resid_std = np.std(y - (slope * x + intercept)) if len(y) > 2 else 0
+            forecast_df["lower_bound"] = np.maximum(forecast_df["forecast_orders"] - 1.28 * resid_std, 0)
+            forecast_df["upper_bound"] = forecast_df["forecast_orders"] + 1.28 * resid_std
+
+            return forecast_df, "Regresión lineal de respaldo"
+        except Exception:
+            return pd.DataFrame(), "error"
+
+    forecast_values = model.forecast(forecast_days)
+    fitted = model.fittedvalues.reindex(train.index)
+    residuals = train - fitted
+    resid_std = residuals.std() if len(residuals.dropna()) > 3 else 0
 
     forecast_df = pd.DataFrame({
-        "analysis_date": future_dates,
-        "forecast_orders": future_y
+        "analysis_date": forecast_values.index,
+        "forecast_orders": forecast_values.values
     })
 
-    return forecast_df
+    forecast_df["forecast_orders"] = np.where(forecast_df["forecast_orders"] < 0, 0, forecast_df["forecast_orders"])
+    forecast_df["lower_bound"] = np.maximum(forecast_df["forecast_orders"] - 1.28 * resid_std, 0)
+    forecast_df["upper_bound"] = forecast_df["forecast_orders"] + 1.28 * resid_std
+
+    return forecast_df, model_name
 
 
 def build_warehouse_performance(df):
@@ -389,7 +500,7 @@ def build_sla_summary(df):
     return base.sort_values("order").drop(columns=["order"])
 
 
-def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_perf):
+def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df):
     insights = []
 
     if not warehouse_perf.empty:
@@ -420,10 +531,14 @@ def generate_insights(df, warehouse_perf, carrier_perf, channel_perf, product_pe
     if sla_gt48 > 20:
         insights.append(f"El {sla_gt48:.1f}% de los registros cae en un SLA mayor a 48 horas.")
 
+    if not forecast_df.empty:
+        monthly_forecast = forecast_df["forecast_orders"].sum()
+        insights.append(f"El forecast estima alrededor de {fmt_int(monthly_forecast)} pedidos para los próximos 30 días.")
+
     return insights
 
 
-def generate_recommendations(df, warehouse_perf, carrier_perf, channel_perf, product_perf):
+def generate_recommendations(df, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df):
     recommendations = []
 
     if not warehouse_perf.empty:
@@ -446,6 +561,12 @@ def generate_recommendations(df, warehouse_perf, carrier_perf, channel_perf, pro
     if pd.notna(avg_cycle) and avg_cycle > 48:
         recommendations.append("Reducir tiempos de ciclo debe ser una prioridad operativa en el corto plazo.")
 
+    if not forecast_df.empty:
+        peak_day = forecast_df.sort_values("forecast_orders", ascending=False).iloc[0]
+        recommendations.append(
+            f"Preparar capacidad para picos próximos al {peak_day['analysis_date'].date()}, fecha con mayor carga proyectada."
+        )
+
     return recommendations
 
 
@@ -466,15 +587,9 @@ def format_table_for_display(df, hour_cols=None, pct_cols=None, int_cols=None, s
     return out
 
 
-def render_kpi_card(title, value):
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-title">{title}</div>
-        <div class="kpi-value">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
+# =========================================================
+# PDF
+# =========================================================
 def draw_kpi_card(c, x, y, w, h, title, value, fill_color="#F5F7FA", value_color="#0B1F3A"):
     c.setFillColor(HexColor(fill_color))
     c.roundRect(x, y, w, h, 10, fill=1, stroke=0)
@@ -505,7 +620,7 @@ def add_wrapped_text(c, text, x, y, max_width, font_name="Helvetica", font_size=
     return y
 
 
-def make_pdf(summary_dict, insights, recommendations, sla_summary):
+def make_pdf(summary_dict, insights, recommendations, sla_summary, forecast_df, forecast_model_name):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -550,7 +665,7 @@ def make_pdf(summary_dict, insights, recommendations, sla_summary):
     c.setFont("Helvetica-Bold", 18)
     c.drawString(40, height - 50, "Imporey Internacional")
     c.setFont("Helvetica", 11)
-    c.drawString(40, height - 70, "SLA y recomendaciones")
+    c.drawString(40, height - 70, "SLA, forecast y recomendaciones")
 
     y = height - 120
 
@@ -561,6 +676,18 @@ def make_pdf(summary_dict, insights, recommendations, sla_summary):
             c.drawString(50, y, f"{row['sla_bucket']}: {fmt_int(row['records'])} registros ({row['share']:.1f}%)")
             y -= 14
         y -= 10
+
+    if forecast_df is not None and not forecast_df.empty:
+        draw_section_title(c, 40, y, "Forecast siguiente mes")
+        y -= 20
+        total_f = forecast_df["forecast_orders"].sum()
+        avg_f = forecast_df["forecast_orders"].mean()
+        c.drawString(50, y, f"Modelo usado: {forecast_model_name}")
+        y -= 14
+        c.drawString(50, y, f"Pedidos pronosticados próximos 30 días: {fmt_int(total_f)}")
+        y -= 14
+        c.drawString(50, y, f"Promedio diario pronosticado: {fmt_int(avg_f)}")
+        y -= 20
 
     draw_section_title(c, 40, y, "Recomendaciones")
     y -= 20
@@ -593,20 +720,20 @@ if uploaded_file is not None:
         with st.expander("Columnas detectadas"):
             st.write(original_columns)
 
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.subheader("Filtros")
+        with st.container():
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            c1, c2, c3, c4 = st.columns(4)
 
-        c1, c2, c3, c4 = st.columns(4)
-        warehouses = sorted([x for x in df["warehouse"].dropna().unique() if str(x).strip() != ""])
-        channels = sorted([x for x in df["channel"].dropna().unique() if str(x).strip() != ""])
-        carriers = sorted([x for x in df["carrier"].dropna().unique() if str(x).strip() != ""])
-        statuses = sorted([x for x in df["status"].dropna().unique() if str(x).strip() != ""])
+            warehouses = sorted([x for x in df["warehouse"].dropna().unique() if str(x).strip() != ""])
+            channels = sorted([x for x in df["channel"].dropna().unique() if str(x).strip() != ""])
+            carriers = sorted([x for x in df["carrier"].dropna().unique() if str(x).strip() != ""])
+            statuses = sorted([x for x in df["status"].dropna().unique() if str(x).strip() != ""])
 
-        selected_warehouses = c1.multiselect("Almacén", warehouses, default=warehouses)
-        selected_channels = c2.multiselect("Canal", channels, default=channels)
-        selected_carriers = c3.multiselect("Carrier", carriers, default=carriers)
-        selected_statuses = c4.multiselect("Status", statuses, default=statuses)
-        st.markdown("</div>", unsafe_allow_html=True)
+            selected_warehouses = c1.multiselect("Almacén", warehouses, default=warehouses)
+            selected_channels = c2.multiselect("Canal", channels, default=channels)
+            selected_carriers = c3.multiselect("Carrier", carriers, default=carriers)
+            selected_statuses = c4.multiselect("Status", statuses, default=statuses)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         filtered = df.copy()
         if selected_warehouses:
@@ -631,245 +758,408 @@ if uploaded_file is not None:
         cancel_rate = filtered["is_cancelled"].mean() * 100 if len(filtered) else 0
         avg_cycle_time = filtered["cycle_time_hours"].mean()
 
+        daily_ops = build_daily_operations(filtered)
+        forecast_df, forecast_model_name = build_forecast_next_period(daily_ops, forecast_days=30)
+        warehouse_perf = build_warehouse_performance(filtered)
+        carrier_perf = build_carrier_performance(filtered)
+        channel_perf = build_channel_performance(filtered)
+        product_perf = build_product_performance(filtered)
         sla_summary = build_sla_summary(filtered)
+
         pct_lt24 = 0
         if not sla_summary.empty:
             row_lt24 = sla_summary[sla_summary["sla_bucket"] == "<24 h"]
             if not row_lt24.empty:
                 pct_lt24 = float(row_lt24.iloc[0]["share"])
 
+        insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
+        recommendations = generate_recommendations(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
+
+        # KPIS
         st.subheader("Resumen ejecutivo")
         r1 = st.columns(4)
         r2 = st.columns(4)
 
         with r1[0]:
-            render_kpi_card("Registros", fmt_int(total_rows))
+            render_kpi_card("Registros", fmt_int(total_rows), "Total de filas analizadas")
         with r1[1]:
-            render_kpi_card("Pedidos únicos", fmt_int(total_orders))
+            render_kpi_card("Pedidos únicos", fmt_int(total_orders), "Órdenes identificadas")
         with r1[2]:
-            render_kpi_card("Envíos únicos", fmt_int(total_shipments))
+            render_kpi_card("Envíos únicos", fmt_int(total_shipments), "Embarques / envíos")
         with r1[3]:
-            render_kpi_card("Unidades", fmt_int(total_units))
+            render_kpi_card("Unidades", fmt_int(total_units), "Volumen total")
 
         with r2[0]:
-            render_kpi_card("% Entregado", fmt_pct(delivered_rate))
+            render_kpi_card("% Entregado", fmt_pct(delivered_rate), "Cumplimiento general")
         with r2[1]:
-            render_kpi_card("% Pickeado", fmt_pct(picked_rate))
+            render_kpi_card("% Pickeado", fmt_pct(picked_rate), "Avance operativo")
         with r2[2]:
-            render_kpi_card("% Cancelado", fmt_pct(cancel_rate))
+            render_kpi_card("% Cancelado", fmt_pct(cancel_rate), "Riesgo operativo")
         with r2[3]:
-            render_kpi_card("SLA <24 h", fmt_pct(pct_lt24))
+            render_kpi_card("SLA <24 h", fmt_pct(pct_lt24), "Velocidad de cierre")
 
         st.caption(f"Tiempo ciclo promedio: {fmt_hours(avg_cycle_time)}")
 
-        daily_ops = build_daily_operations(filtered)
-        forecast_df = build_forecast_next_period(daily_ops, forecast_days=30)
-        warehouse_perf = build_warehouse_performance(filtered)
-        carrier_perf = build_carrier_performance(filtered)
-        channel_perf = build_channel_performance(filtered)
-        product_perf = build_product_performance(filtered)
-
-        insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf)
-        recommendations = generate_recommendations(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf)
-
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Tendencia operativa diaria")
-            if not daily_ops.empty:
-                fig1, ax1 = plt.subplots(figsize=(8, 4))
-                ax1.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["orders"], marker="o")
-                ax1.set_title("Pedidos por día")
-                ax1.set_xlabel("Fecha")
-                ax1.set_ylabel("Pedidos")
-                plt.xticks(rotation=45)
-                st.pyplot(fig1)
-
-                fig2, ax2 = plt.subplots(figsize=(8, 4))
-                ax2.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["delivered"], label="Entregados")
-                ax2.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["cancelled"], label="Cancelados")
-                ax2.set_title("Entregados vs cancelados")
-                ax2.legend()
-                plt.xticks(rotation=45)
-                st.pyplot(fig2)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_b:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Distribución SLA")
-            if not sla_summary.empty:
-                fig_sla, ax_sla = plt.subplots(figsize=(8, 4))
-                ax_sla.bar(sla_summary["sla_bucket"], sla_summary["records"])
-                ax_sla.set_title("Registros por rango SLA")
-                ax_sla.set_xlabel("SLA")
-                ax_sla.set_ylabel("Registros")
-                st.pyplot(fig_sla)
-
-                st.dataframe(
-                    format_table_for_display(
-                        sla_summary,
-                        pct_cols=["share"],
-                        int_cols=["records"]
-                    ),
-                    use_container_width=True
-                )
-            else:
-                st.info("No hay datos suficientes para SLA.")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown('<div class="section-box">', unsafe_allow_html=True)
-        st.subheader("Pronóstico del siguiente mes")
-        if not forecast_df.empty and not daily_ops.empty:
-            fig_forecast, ax_forecast = plt.subplots(figsize=(10, 4))
-
-            hist_dates = pd.to_datetime(daily_ops["analysis_date"])
-            ax_forecast.plot(hist_dates, daily_ops["orders"], marker="o", label="Histórico pedidos")
-
-            ax_forecast.plot(
-                forecast_df["analysis_date"],
-                forecast_df["forecast_orders"],
-                marker="o",
-                linestyle="--",
-                label="Pronóstico siguiente mes"
+        # Forecast summary chips
+        if not forecast_df.empty:
+            st.markdown(
+                f"""
+                <span class="small-chip">Modelo: {forecast_model_name}</span>
+                <span class="small-chip">Forecast 30 días: {fmt_int(forecast_df['forecast_orders'].sum())} pedidos</span>
+                <span class="small-chip">Promedio diario: {fmt_int(forecast_df['forecast_orders'].mean())}</span>
+                """,
+                unsafe_allow_html=True
             )
 
-            ax_forecast.set_title("Pronóstico de pedidos para los próximos 30 días")
-            ax_forecast.set_xlabel("Fecha")
-            ax_forecast.set_ylabel("Pedidos")
-            ax_forecast.legend()
-            plt.xticks(rotation=45)
-            st.pyplot(fig_forecast)
+        # Tabs
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "Resumen",
+            "Forecast",
+            "SLA",
+            "Operación",
+            "Detalle"
+        ])
 
-            forecast_show = forecast_df.copy()
-            forecast_show["analysis_date"] = forecast_show["analysis_date"].dt.date
-            forecast_show["forecast_orders"] = forecast_show["forecast_orders"].round(0).astype(int)
-            forecast_show = forecast_show.rename(columns={
-                "analysis_date": "Fecha pronosticada",
-                "forecast_orders": "Pedidos pronosticados"
-            })
-            st.dataframe(forecast_show, use_container_width=True)
-        else:
-            st.info("No hay suficientes datos diarios para generar el pronóstico.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with tab1:
+            c_left, c_right = st.columns(2)
 
-        col_c, col_d = st.columns(2)
+            with c_left:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Tendencia operativa diaria")
 
-        with col_c:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Top 10 almacenes por score")
-            if not warehouse_perf.empty:
-                top_wh = warehouse_perf.head(10).sort_values("performance_score", ascending=True)
-                fig3, ax3 = plt.subplots(figsize=(8, 5))
-                ax3.barh(top_wh["warehouse"], top_wh["performance_score"])
-                ax3.set_title("Score de desempeño por almacén")
-                ax3.set_xlabel("Score")
-                st.pyplot(fig3)
+                if not daily_ops.empty:
+                    fig_orders = go.Figure()
+                    fig_orders.add_trace(go.Scatter(
+                        x=daily_ops["analysis_date"],
+                        y=daily_ops["orders"],
+                        mode="lines+markers",
+                        name="Pedidos"
+                    ))
+                    fig_orders.add_trace(go.Scatter(
+                        x=daily_ops["analysis_date"],
+                        y=daily_ops["delivered"],
+                        mode="lines",
+                        name="Entregados"
+                    ))
+                    fig_orders.add_trace(go.Scatter(
+                        x=daily_ops["analysis_date"],
+                        y=daily_ops["cancelled"],
+                        mode="lines",
+                        name="Cancelados"
+                    ))
+                    fig_orders.update_layout(
+                        height=420,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        legend_title="Serie",
+                        xaxis_title="Fecha",
+                        yaxis_title="Volumen",
+                        template="plotly_white"
+                    )
+                    st.plotly_chart(fig_orders, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-                st.dataframe(
-                    format_table_for_display(
-                        warehouse_perf[[
-                            "warehouse", "status_light", "performance_score", "orders", "shipments",
-                            "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
-                            "avg_time_spent", "share_orders"
-                        ]],
-                        hour_cols=["avg_cycle_hours", "avg_time_spent"],
-                        pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
-                        int_cols=["orders", "shipments", "units"],
-                        score_cols=["performance_score"]
-                    ),
-                    use_container_width=True
+            with c_right:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Hallazgos automáticos")
+                for i, insight in enumerate(insights, start=1):
+                    st.write(f"{i}. {insight}")
+
+                st.subheader("Recomendaciones ejecutivas")
+                for i, rec in enumerate(recommendations, start=1):
+                    st.write(f"{i}. {rec}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        with tab2:
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.subheader("Pronóstico del siguiente mes")
+
+            if not forecast_df.empty and not daily_ops.empty:
+                forecast_total = forecast_df["forecast_orders"].sum()
+                forecast_avg = forecast_df["forecast_orders"].mean()
+                forecast_high = forecast_df["upper_bound"].sum()
+                forecast_low = forecast_df["lower_bound"].sum()
+
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    render_mini_metric("Pedidos esperados próximos 30 días", fmt_int(forecast_total))
+                with m2:
+                    render_mini_metric("Promedio diario esperado", fmt_int(forecast_avg))
+                with m3:
+                    render_mini_metric("Rango estimado", f"{fmt_int(forecast_low)} - {fmt_int(forecast_high)}")
+
+                hist = daily_ops[["analysis_date", "orders"]].copy()
+                hist["type"] = "Histórico"
+
+                fc = forecast_df[["analysis_date", "forecast_orders", "lower_bound", "upper_bound"]].copy()
+
+                fig_fc = go.Figure()
+                fig_fc.add_trace(go.Scatter(
+                    x=hist["analysis_date"],
+                    y=hist["orders"],
+                    mode="lines",
+                    name="Histórico",
+                    line=dict(width=3)
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=fc["analysis_date"],
+                    y=fc["upper_bound"],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip"
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=fc["analysis_date"],
+                    y=fc["lower_bound"],
+                    mode="lines",
+                    line=dict(width=0),
+                    fill="tonexty",
+                    name="Banda estimada"
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=fc["analysis_date"],
+                    y=fc["forecast_orders"],
+                    mode="lines+markers",
+                    name="Pronóstico",
+                    line=dict(dash="dash", width=3)
+                ))
+
+                fig_fc.update_layout(
+                    height=500,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_title="Fecha",
+                    yaxis_title="Pedidos",
+                    template="plotly_white",
+                    legend_title="Serie"
                 )
+                st.plotly_chart(fig_fc, use_container_width=True)
+
+                forecast_show = fc.copy()
+                forecast_show["analysis_date"] = forecast_show["analysis_date"].dt.date
+                forecast_show["forecast_orders"] = forecast_show["forecast_orders"].round(0).astype(int)
+                forecast_show["lower_bound"] = forecast_show["lower_bound"].round(0).astype(int)
+                forecast_show["upper_bound"] = forecast_show["upper_bound"].round(0).astype(int)
+                forecast_show = forecast_show.rename(columns={
+                    "analysis_date": "Fecha",
+                    "forecast_orders": "Pedidos pronosticados",
+                    "lower_bound": "Escenario bajo",
+                    "upper_bound": "Escenario alto"
+                })
+                st.dataframe(forecast_show, use_container_width=True)
+            else:
+                st.info("No hay suficiente historial diario para generar un forecast robusto.")
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_d:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Top 10 carriers por score")
-            if not carrier_perf.empty:
-                top_car = carrier_perf.head(10).sort_values("performance_score", ascending=True)
-                fig4, ax4 = plt.subplots(figsize=(8, 5))
-                ax4.barh(top_car["carrier"], top_car["performance_score"])
-                ax4.set_title("Score de desempeño por carrier")
-                ax4.set_xlabel("Score")
-                st.pyplot(fig4)
+        with tab3:
+            c1, c2 = st.columns([1, 2])
 
-                st.dataframe(
-                    format_table_for_display(
-                        carrier_perf[[
-                            "carrier", "status_light", "performance_score", "shipments", "orders",
-                            "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
-                            "avg_time_spent", "share_shipments"
-                        ]],
-                        hour_cols=["avg_cycle_hours", "avg_time_spent"],
-                        pct_cols=["delivered_rate", "cancelled_rate", "share_shipments"],
-                        int_cols=["shipments", "orders", "units"],
-                        score_cols=["performance_score"]
-                    ),
-                    use_container_width=True
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+            with c1:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Distribución SLA")
+                if not sla_summary.empty:
+                    show = sla_summary.copy()
+                    show["records"] = show["records"].apply(fmt_int)
+                    show["share"] = show["share"].apply(lambda x: f"{x:.1f}%")
+                    st.dataframe(show, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay datos suficientes para SLA.")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        col_e, col_f = st.columns(2)
+            with c2:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Registros por rango SLA")
+                if not sla_summary.empty:
+                    fig_sla = px.bar(
+                        sla_summary,
+                        x="sla_bucket",
+                        y="records",
+                        text="records",
+                        template="plotly_white"
+                    )
+                    fig_sla.update_layout(
+                        height=430,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        xaxis_title="Rango SLA",
+                        yaxis_title="Registros"
+                    )
+                    st.plotly_chart(fig_sla, use_container_width=True)
+                else:
+                    st.info("No hay datos suficientes para SLA.")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_e:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Canales")
-            if not channel_perf.empty:
-                fig5, ax5 = plt.subplots(figsize=(8, 4))
-                top_ch = channel_perf.head(10).sort_values("orders", ascending=True)
-                ax5.barh(top_ch["channel"], top_ch["orders"])
-                ax5.set_title("Pedidos por canal")
-                ax5.set_xlabel("Pedidos")
-                st.pyplot(fig5)
-                st.dataframe(
-                    format_table_for_display(
-                        channel_perf,
-                        hour_cols=["avg_cycle_hours"],
-                        pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
-                        int_cols=["orders", "shipments", "units"]
-                    ),
-                    use_container_width=True
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+        with tab4:
+            c1, c2 = st.columns(2)
 
-        with col_f:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Top productos")
-            if not product_perf.empty:
-                fig6, ax6 = plt.subplots(figsize=(8, 4))
-                top_prod = product_perf.head(10).sort_values("units", ascending=True)
-                ax6.barh(top_prod["product"], top_prod["units"])
-                ax6.set_title("Top 10 productos por unidades")
-                ax6.set_xlabel("Unidades")
-                st.pyplot(fig6)
-                st.dataframe(
-                    format_table_for_display(
-                        product_perf.head(20),
-                        pct_cols=["delivered_rate", "cancelled_rate", "share_units"],
-                        int_cols=["orders", "shipments", "units"]
-                    ),
-                    use_container_width=True
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+            with c1:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Almacenes por score")
+                if not warehouse_perf.empty:
+                    top_wh = warehouse_perf.head(10).sort_values("performance_score", ascending=True)
+                    fig_wh = px.bar(
+                        top_wh,
+                        x="performance_score",
+                        y="warehouse",
+                        orientation="h",
+                        text="performance_score",
+                        template="plotly_white"
+                    )
+                    fig_wh.update_layout(
+                        height=450,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        xaxis_title="Score",
+                        yaxis_title=""
+                    )
+                    st.plotly_chart(fig_wh, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        col_g, col_h = st.columns(2)
+            with c2:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Carriers por score")
+                if not carrier_perf.empty:
+                    top_car = carrier_perf.head(10).sort_values("performance_score", ascending=True)
+                    fig_car = px.bar(
+                        top_car,
+                        x="performance_score",
+                        y="carrier",
+                        orientation="h",
+                        text="performance_score",
+                        template="plotly_white"
+                    )
+                    fig_car.update_layout(
+                        height=450,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        xaxis_title="Score",
+                        yaxis_title=""
+                    )
+                    st.plotly_chart(fig_car, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_g:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Hallazgos automáticos")
-            for i, insight in enumerate(insights, start=1):
-                st.write(f"{i}. {insight}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            c3, c4 = st.columns(2)
 
-        with col_h:
-            st.markdown('<div class="section-box">', unsafe_allow_html=True)
-            st.subheader("Recomendaciones ejecutivas")
-            for i, rec in enumerate(recommendations, start=1):
-                st.write(f"{i}. {rec}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            with c3:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Pedidos por canal")
+                if not channel_perf.empty:
+                    top_ch = channel_perf.head(10).sort_values("orders", ascending=True)
+                    fig_ch = px.bar(
+                        top_ch,
+                        x="orders",
+                        y="channel",
+                        orientation="h",
+                        text="orders",
+                        template="plotly_white"
+                    )
+                    fig_ch.update_layout(
+                        height=430,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        xaxis_title="Pedidos",
+                        yaxis_title=""
+                    )
+                    st.plotly_chart(fig_ch, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        with st.expander("Vista previa de datos procesados"):
-            st.dataframe(filtered.head(100), use_container_width=True)
+            with c4:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Top productos")
+                if not product_perf.empty:
+                    top_prod = product_perf.head(10).sort_values("units", ascending=True)
+                    fig_prod = px.bar(
+                        top_prod,
+                        x="units",
+                        y="product",
+                        orientation="h",
+                        text="units",
+                        template="plotly_white"
+                    )
+                    fig_prod.update_layout(
+                        height=430,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        xaxis_title="Unidades",
+                        yaxis_title=""
+                    )
+                    st.plotly_chart(fig_prod, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        with tab5:
+            d1, d2 = st.columns(2)
+
+            with d1:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Detalle de almacenes")
+                if not warehouse_perf.empty:
+                    st.dataframe(
+                        format_table_for_display(
+                            warehouse_perf[[
+                                "warehouse", "status_light", "performance_score", "orders", "shipments",
+                                "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
+                                "avg_time_spent", "share_orders"
+                            ]],
+                            hour_cols=["avg_cycle_hours", "avg_time_spent"],
+                            pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
+                            int_cols=["orders", "shipments", "units"],
+                            score_cols=["performance_score"]
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with d2:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Detalle de carriers")
+                if not carrier_perf.empty:
+                    st.dataframe(
+                        format_table_for_display(
+                            carrier_perf[[
+                                "carrier", "status_light", "performance_score", "shipments", "orders",
+                                "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
+                                "avg_time_spent", "share_shipments"
+                            ]],
+                            hour_cols=["avg_cycle_hours", "avg_time_spent"],
+                            pct_cols=["delivered_rate", "cancelled_rate", "share_shipments"],
+                            int_cols=["shipments", "orders", "units"],
+                            score_cols=["performance_score"]
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            d3, d4 = st.columns(2)
+
+            with d3:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Detalle de canales")
+                if not channel_perf.empty:
+                    st.dataframe(
+                        format_table_for_display(
+                            channel_perf,
+                            hour_cols=["avg_cycle_hours"],
+                            pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
+                            int_cols=["orders", "shipments", "units"]
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with d4:
+                st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                st.subheader("Top productos")
+                if not product_perf.empty:
+                    st.dataframe(
+                        format_table_for_display(
+                            product_perf.head(25),
+                            pct_cols=["delivered_rate", "cancelled_rate", "share_units"],
+                            int_cols=["orders", "shipments", "units"]
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with st.expander("Vista previa de datos procesados"):
+                st.dataframe(filtered.head(100), use_container_width=True)
 
         summary_dict = {
             "Registros": fmt_int(total_rows),
@@ -882,7 +1172,14 @@ if uploaded_file is not None:
             "Tiempo ciclo prom.": fmt_hours(avg_cycle_time),
         }
 
-        pdf_buffer = make_pdf(summary_dict, insights, recommendations, sla_summary)
+        pdf_buffer = make_pdf(
+            summary_dict,
+            insights,
+            recommendations,
+            sla_summary,
+            forecast_df,
+            forecast_model_name
+        )
 
         st.download_button(
             label="Descargar PDF avanzado",
