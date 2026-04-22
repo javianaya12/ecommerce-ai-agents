@@ -9,7 +9,7 @@ from reportlab.lib.utils import simpleSplit
 from reportlab.lib.colors import HexColor
 
 st.set_page_config(
-    page_title="Imporey Internacional | Dashboard Premium",
+    page_title="Imporey Internacional | Dashboard Avanzado",
     layout="wide"
 )
 
@@ -66,10 +66,6 @@ st.markdown("""
     font-size: 1rem;
     color: #D9E3F0;
 }
-.small-note {
-    color: #94A3B8;
-    font-size: 0.9rem;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,7 +75,7 @@ st.markdown("""
 st.markdown("""
 <div class="hero-box">
     <div class="hero-title">Imporey Internacional</div>
-    <div class="hero-subtitle">Dashboard Premium de Operación, Fulfillment y Logística</div>
+    <div class="hero-subtitle">Dashboard Avanzado de Operación, Fulfillment y Logística</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -110,7 +106,6 @@ COLUMN_MAP = {
     "Pickeado": "picked_flag",
     "Tiempo dedicado": "time_spent",
 }
-
 
 # =========================================================
 # HELPERS
@@ -262,6 +257,37 @@ def build_daily_operations(df):
         .reset_index()
         .sort_values("analysis_date")
     )
+
+
+def build_forecast_next_period(daily_ops, forecast_days=30):
+    if daily_ops.empty or len(daily_ops) < 2:
+        return pd.DataFrame()
+
+    tmp = daily_ops.copy()
+    tmp["analysis_date"] = pd.to_datetime(tmp["analysis_date"])
+    tmp = tmp.sort_values("analysis_date").reset_index(drop=True)
+
+    x = np.arange(len(tmp))
+    y = tmp["orders"].astype(float).values
+
+    try:
+        slope, intercept = np.polyfit(x, y, 1)
+    except Exception:
+        return pd.DataFrame()
+
+    future_x = np.arange(len(tmp), len(tmp) + forecast_days)
+    future_y = slope * future_x + intercept
+    future_y = np.where(future_y < 0, 0, future_y)
+
+    last_date = tmp["analysis_date"].max()
+    future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=forecast_days, freq="D")
+
+    forecast_df = pd.DataFrame({
+        "analysis_date": future_dates,
+        "forecast_orders": future_y
+    })
+
+    return forecast_df
 
 
 def build_warehouse_performance(df):
@@ -556,7 +582,7 @@ def make_pdf(summary_dict, insights, recommendations, period_comp, sla_summary):
     c.setFont("Helvetica-Bold", 22)
     c.drawString(40, height - 50, "Imporey Internacional")
     c.setFont("Helvetica", 12)
-    c.drawString(40, height - 72, "Dashboard Premium Operativo y Logístico")
+    c.drawString(40, height - 72, "Dashboard Avanzado Operativo y Logístico")
     c.drawString(40, height - 90, "Resumen ejecutivo generado automáticamente")
 
     y = height - 145
@@ -712,6 +738,7 @@ if uploaded_file is not None:
         st.caption(f"Tiempo ciclo promedio: {fmt_hours(avg_cycle_time)}")
 
         daily_ops = build_daily_operations(filtered)
+        forecast_df = build_forecast_next_period(daily_ops, forecast_days=30)
         warehouse_perf = build_warehouse_performance(filtered)
         carrier_perf = build_carrier_performance(filtered)
         channel_perf = build_channel_performance(filtered)
@@ -749,7 +776,7 @@ if uploaded_file is not None:
             st.subheader("Tendencia operativa diaria")
             if not daily_ops.empty:
                 fig1, ax1 = plt.subplots(figsize=(8, 4))
-                ax1.plot(daily_ops["analysis_date"], daily_ops["orders"], marker="o")
+                ax1.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["orders"], marker="o")
                 ax1.set_title("Pedidos por día")
                 ax1.set_xlabel("Fecha")
                 ax1.set_ylabel("Pedidos")
@@ -757,8 +784,8 @@ if uploaded_file is not None:
                 st.pyplot(fig1)
 
                 fig2, ax2 = plt.subplots(figsize=(8, 4))
-                ax2.plot(daily_ops["analysis_date"], daily_ops["delivered"], label="Entregados")
-                ax2.plot(daily_ops["analysis_date"], daily_ops["cancelled"], label="Cancelados")
+                ax2.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["delivered"], label="Entregados")
+                ax2.plot(pd.to_datetime(daily_ops["analysis_date"]), daily_ops["cancelled"], label="Cancelados")
                 ax2.set_title("Entregados vs cancelados")
                 ax2.legend()
                 plt.xticks(rotation=45)
@@ -787,6 +814,41 @@ if uploaded_file is not None:
             else:
                 st.info("No hay datos suficientes para SLA.")
             st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="section-box">', unsafe_allow_html=True)
+        st.subheader("Pronóstico del siguiente mes")
+        if not forecast_df.empty and not daily_ops.empty:
+            fig_forecast, ax_forecast = plt.subplots(figsize=(10, 4))
+
+            hist_dates = pd.to_datetime(daily_ops["analysis_date"])
+            ax_forecast.plot(hist_dates, daily_ops["orders"], marker="o", label="Histórico pedidos")
+
+            ax_forecast.plot(
+                forecast_df["analysis_date"],
+                forecast_df["forecast_orders"],
+                marker="o",
+                linestyle="--",
+                label="Pronóstico siguiente mes"
+            )
+
+            ax_forecast.set_title("Pronóstico de pedidos para los próximos 30 días")
+            ax_forecast.set_xlabel("Fecha")
+            ax_forecast.set_ylabel("Pedidos")
+            ax_forecast.legend()
+            plt.xticks(rotation=45)
+            st.pyplot(fig_forecast)
+
+            forecast_show = forecast_df.copy()
+            forecast_show["analysis_date"] = forecast_show["analysis_date"].dt.date
+            forecast_show["forecast_orders"] = forecast_show["forecast_orders"].round(0).astype(int)
+            forecast_show = forecast_show.rename(columns={
+                "analysis_date": "Fecha pronosticada",
+                "forecast_orders": "Pedidos pronosticados"
+            })
+            st.dataframe(forecast_show, use_container_width=True)
+        else:
+            st.info("No hay suficientes datos diarios para generar el pronóstico.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
         col_c, col_d = st.columns(2)
 
@@ -920,9 +982,9 @@ if uploaded_file is not None:
         pdf_buffer = make_pdf(summary_dict, insights, recommendations, period_comp, sla_summary)
 
         st.download_button(
-            label="Descargar PDF premium",
+            label="Descargar PDF avanzado",
             data=pdf_buffer,
-            file_name="dashboard_premium_imporey.pdf",
+            file_name="dashboard_avanzado_imporey.pdf",
             mime="application/pdf"
         )
 
