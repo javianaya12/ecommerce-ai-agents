@@ -8,121 +8,516 @@ from reportlab.lib.utils import simpleSplit
 from reportlab.lib.colors import HexColor
 import plotly.express as px
 import plotly.graph_objects as go
-
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 st.set_page_config(
     page_title="Imporey Internacional | Dashboard Avanzado",
-    layout="wide"
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # =========================================================
-# ESTILOS
+# ESTILOS PREMIUM
 # =========================================================
 st.markdown("""
 <style>
-.main {
-    background: #f5f7fb;
+:root {
+    --bg: #f4f7fb;
+    --card: rgba(255,255,255,0.92);
+    --card-strong: #ffffff;
+    --line: #e8eef6;
+    --text: #0f172a;
+    --muted: #64748b;
+    --brand: #0B1F3A;
+    --brand-2: #163A63;
+    --brand-3: #204d84;
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    --radius-xl: 24px;
+    --radius-lg: 18px;
+    --radius-md: 14px;
 }
-.block-container {
+
+html, body, [data-testid="stAppViewContainer"] {
+    background:
+        radial-gradient(circle at top left, rgba(32,77,132,0.06), transparent 22%),
+        radial-gradient(circle at top right, rgba(11,31,58,0.05), transparent 18%),
+        linear-gradient(180deg, #f7f9fc 0%, #f2f5fa 100%);
+    color: var(--text);
+}
+
+.main .block-container {
     padding-top: 1.2rem;
     padding-bottom: 2rem;
-    max-width: 1500px;
+    max-width: 1550px;
 }
-.hero-box {
-    background: linear-gradient(135deg, #0B1F3A 0%, #173B63 100%);
-    color: white;
-    padding: 28px 30px;
-    border-radius: 22px;
-    margin-bottom: 18px;
-    box-shadow: 0 10px 30px rgba(11,31,58,0.18);
+
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0b1f3a 0%, #102a4d 100%);
+    border-right: 1px solid rgba(255,255,255,0.05);
 }
-.hero-title {
-    font-size: 2.1rem;
-    font-weight: 800;
-    margin-bottom: 4px;
+
+section[data-testid="stSidebar"] * {
+    color: #e8eef7 !important;
 }
-.hero-subtitle {
-    font-size: 1rem;
-    color: #DDE7F3;
-}
-.kpi-card {
-    background: white;
+
+.sidebar-panel {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
     border-radius: 18px;
-    padding: 18px 18px;
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-    border: 1px solid #edf1f7;
-    min-height: 108px;
+    padding: 14px 14px 8px 14px;
+    margin-bottom: 14px;
+    backdrop-filter: blur(6px);
 }
-.kpi-label {
-    color: #6b7280;
-    font-size: 0.92rem;
+
+.sidebar-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #ffffff;
     margin-bottom: 8px;
 }
+
+.sidebar-sub {
+    font-size: 0.8rem;
+    color: #c9d7ea;
+    margin-bottom: 8px;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    background: rgba(255,255,255,0.07) !important;
+    border: 1px dashed rgba(255,255,255,0.28) !important;
+    border-radius: 16px !important;
+}
+
+.hero-wrap {
+    animation: fadeInUp 0.65s ease-out;
+}
+
+.hero-box {
+    background:
+        radial-gradient(circle at 80% 20%, rgba(255,255,255,0.14), transparent 18%),
+        linear-gradient(135deg, #0B1F3A 0%, #173B63 56%, #1f568c 100%);
+    color: white;
+    padding: 30px 32px;
+    border-radius: 26px;
+    margin-bottom: 20px;
+    box-shadow: 0 16px 40px rgba(11,31,58,0.20);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-box:after {
+    content: "";
+    position: absolute;
+    right: -60px;
+    top: -60px;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(255,255,255,0.10), transparent 60%);
+    border-radius: 50%;
+}
+
+.hero-title {
+    font-size: 2.2rem;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: -0.02em;
+}
+
+.hero-subtitle {
+    font-size: 1rem;
+    color: #dbe8f6;
+}
+
+.hero-badges {
+    margin-top: 16px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.hero-badge {
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    color: #e7f0fa;
+}
+
+.section-title {
+    font-size: 1.08rem;
+    font-weight: 800;
+    color: var(--brand);
+    margin-bottom: 12px;
+}
+
+.section-card {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: 18px 18px 14px 18px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--line);
+    margin-bottom: 18px;
+    backdrop-filter: blur(10px);
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.kpi-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+    border-radius: 18px;
+    padding: 18px 18px 14px 18px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--line);
+    min-height: 118px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    animation: fadeInUp 0.55s ease-out;
+}
+
+.kpi-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+}
+
+.kpi-topline {
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+}
+
+.kpi-label {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
 .kpi-value {
-    color: #0B1F3A;
+    color: var(--text);
     font-size: 2rem;
     font-weight: 800;
     line-height: 1.1;
+    letter-spacing: -0.02em;
 }
+
 .kpi-sub {
     color: #94a3b8;
     font-size: 0.82rem;
     margin-top: 8px;
 }
-.section-card {
-    background: white;
-    border-radius: 18px;
-    padding: 18px 18px 12px 18px;
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-    border: 1px solid #edf1f7;
-    margin-bottom: 18px;
-}
-.small-chip {
-    display: inline-block;
-    background: #eef4ff;
-    color: #184a8c;
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-size: 0.82rem;
-    margin-right: 8px;
-    margin-bottom: 8px;
-}
+
 .metric-mini {
-    background: #f8fafc;
-    border: 1px solid #edf2f7;
-    padding: 12px 14px;
-    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    border: 1px solid var(--line);
+    padding: 13px 14px;
+    border-radius: 16px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
 }
+
 .metric-mini-title {
-    color: #64748b;
+    color: var(--muted);
     font-size: 0.82rem;
     margin-bottom: 4px;
+    font-weight: 600;
 }
+
 .metric-mini-value {
-    color: #0f172a;
-    font-size: 1.25rem;
+    color: var(--text);
+    font-size: 1.22rem;
+    font-weight: 800;
+}
+
+.pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 6px;
+    margin-bottom: 8px;
+}
+
+.small-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: linear-gradient(180deg, #eef5ff 0%, #e8f1ff 100%);
+    color: #184a8c;
+    border: 1px solid #d9e7ff;
+    padding: 7px 11px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.insight-item, .recommend-item {
+    background: #fbfdff;
+    border: 1px solid #ebf0f6;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+}
+
+.insight-index, .recommend-index {
+    display: inline-block;
+    min-width: 24px;
+    height: 24px;
+    text-align: center;
+    line-height: 24px;
+    border-radius: 999px;
+    margin-right: 8px;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.insight-index {
+    background: #eaf3ff;
+    color: #1953a6;
+}
+
+.recommend-index {
+    background: #ecfdf3;
+    color: #15803d;
+}
+
+.badge-good {
+    color: #15803d;
     font-weight: 700;
 }
-div[data-baseweb="tab-list"] {
-    gap: 10px;
+
+.badge-warn {
+    color: #b45309;
+    font-weight: 700;
 }
-button[data-baseweb="tab"] {
+
+.badge-bad {
+    color: #b91c1c;
+    font-weight: 700;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 14px !important;
+    padding: 10px 16px !important;
+    background: rgba(255,255,255,0.82) !important;
+    border: 1px solid var(--line) !important;
+    color: var(--brand) !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+}
+
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(180deg, #ffffff 0%, #eef4ff 100%) !important;
+    border: 1px solid #d6e4ff !important;
+}
+
+div[data-testid="stDataFrame"] {
+    border-radius: 14px !important;
+    overflow: hidden;
+    border: 1px solid var(--line);
+}
+
+button[kind="primary"] {
     border-radius: 12px !important;
-    padding: 10px 14px !important;
-    background: white !important;
-    border: 1px solid #e5e7eb !important;
+}
+
+.stDownloadButton > button {
+    border-radius: 14px !important;
+    min-height: 44px !important;
+    font-weight: 700 !important;
+    border: none !important;
+    background: linear-gradient(135deg, #0B1F3A 0%, #173B63 100%) !important;
+    color: white !important;
+    box-shadow: 0 10px 24px rgba(11,31,58,0.20);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.stDownloadButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 34px rgba(11,31,58,0.26);
+}
+
+.upload-ok {
+    background: linear-gradient(180deg, #ecfdf3 0%, #f5fff8 100%);
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    animation: fadeInUp 0.4s ease-out;
+}
+
+.upload-info {
+    background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.footer-note {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 10px;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
+# HELPERS UI
+# =========================================================
+def get_kpi_tone(title, value_raw=None):
+    title_lower = title.lower()
+
+    if "% cancelado" in title_lower:
+        if value_raw is None:
+            return "#dc2626"
+        if value_raw <= 2:
+            return "#16a34a"
+        if value_raw <= 5:
+            return "#d97706"
+        return "#dc2626"
+
+    if "% entregado" in title_lower or "% pickeado" in title_lower or "sla <24" in title_lower:
+        if value_raw is None:
+            return "#16a34a"
+        if value_raw >= 95:
+            return "#16a34a"
+        if value_raw >= 85:
+            return "#d97706"
+        return "#dc2626"
+
+    if "tiempo ciclo" in title_lower:
+        if value_raw is None or pd.isna(value_raw):
+            return "#0B1F3A"
+        if value_raw <= 24:
+            return "#16a34a"
+        if value_raw <= 48:
+            return "#d97706"
+        return "#dc2626"
+
+    return "#0B1F3A"
+
+
+def render_kpi_card(title, value, subtitle="", tone="#0B1F3A"):
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-topline" style="background:{tone};"></div>
+        <div class="kpi-label">{title}</div>
+        <div class="kpi-value">{value}</div>
+        <div class="kpi-sub">{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_mini_metric(title, value):
+    st.markdown(f"""
+    <div class="metric-mini">
+        <div class="metric-mini-title">{title}</div>
+        <div class="metric-mini-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_section_open(title=None):
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    if title:
+        st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
+
+
+def render_section_close():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_upload_success(text):
+    st.markdown(f'<div class="upload-ok">✅ {text}</div>', unsafe_allow_html=True)
+
+
+def render_upload_info(text):
+    st.markdown(f'<div class="upload-info">ℹ️ {text}</div>', unsafe_allow_html=True)
+
+
+def render_insight_list(items):
+    for i, item in enumerate(items, start=1):
+        st.markdown(
+            f'<div class="insight-item"><span class="insight-index">{i}</span>{item}</div>',
+            unsafe_allow_html=True
+        )
+
+
+def render_recommend_list(items):
+    for i, item in enumerate(items, start=1):
+        st.markdown(
+            f'<div class="recommend-item"><span class="recommend-index">{i}</span>{item}</div>',
+            unsafe_allow_html=True
+        )
+
+
+def set_plotly_theme(fig):
+    fig.update_layout(
+        template="plotly_white",
+        margin=dict(l=10, r=10, t=18, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#0f172a"),
+        legend=dict(
+            bgcolor="rgba(255,255,255,0.75)",
+            bordercolor="#e8eef6",
+            borderwidth=1
+        )
+    )
+    fig.update_xaxes(
+        showgrid=False,
+        linecolor="#d8e1ec",
+        tickfont=dict(color="#475569")
+    )
+    fig.update_yaxes(
+        gridcolor="#edf2f7",
+        zeroline=False,
+        linecolor="#d8e1ec",
+        tickfont=dict(color="#475569")
+    )
+    return fig
+
+# =========================================================
 # HEADER
 # =========================================================
 st.markdown("""
-<div class="hero-box">
-    <div class="hero-title">Imporey Internacional</div>
-    <div class="hero-subtitle">Dashboard Avanzado de Operación, Fulfillment y Logística</div>
+<div class="hero-wrap">
+    <div class="hero-box">
+        <div class="hero-title">Imporey Internacional</div>
+        <div class="hero-subtitle">Dashboard Avanzado de Operación, Fulfillment y Logística</div>
+        <div class="hero-badges">
+            <span class="hero-badge">Forecast 30 días</span>
+            <span class="hero-badge">SLA operativo</span>
+            <span class="hero-badge">KPIs ejecutivos</span>
+            <span class="hero-badge">Dashboard premium</span>
+        </div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -155,7 +550,7 @@ COLUMN_MAP = {
 }
 
 # =========================================================
-# HELPERS
+# HELPERS DE NEGOCIO - SIN CAMBIOS
 # =========================================================
 def parse_duration_to_hours(value):
     if pd.isna(value):
@@ -210,25 +605,6 @@ def fmt_hours(x):
 
 def safe_nunique(series):
     return series.dropna().nunique()
-
-
-def render_kpi_card(title, value, subtitle=""):
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">{title}</div>
-        <div class="kpi-value">{value}</div>
-        <div class="kpi-sub">{subtitle}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_mini_metric(title, value):
-    st.markdown(f"""
-    <div class="metric-mini">
-        <div class="metric-mini-title">{title}</div>
-        <div class="metric-mini-value">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 def normalize_dataframe(df):
@@ -339,7 +715,6 @@ def build_forecast_next_period(daily_ops, forecast_days=30):
 
     train = ts["orders"].astype(float)
 
-    # Selección automática simple del modelo
     seasonal_periods = 7 if len(train) >= 28 else None
 
     try:
@@ -361,7 +736,6 @@ def build_forecast_next_period(daily_ops, forecast_days=30):
             ).fit(optimized=True)
             model_name = "Exponential Smoothing con tendencia"
     except Exception:
-        # fallback
         x = np.arange(len(train))
         y = train.values
         try:
@@ -586,9 +960,8 @@ def format_table_for_display(df, hour_cols=None, pct_cols=None, int_cols=None, s
             out[c] = out[c].apply(lambda x: f"{x:.1f}")
     return out
 
-
 # =========================================================
-# PDF
+# PDF - SIN CAMBIOS DE LÓGICA
 # =========================================================
 def draw_kpi_card(c, x, y, w, h, title, value, fill_color="#F5F7FA", value_color="#0B1F3A"):
     c.setFillColor(HexColor(fill_color))
@@ -702,37 +1075,55 @@ def make_pdf(summary_dict, insights, recommendations, sla_summary, forecast_df, 
     buffer.seek(0)
     return buffer
 
+# =========================================================
+# SIDEBAR
+# =========================================================
+with st.sidebar:
+    st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Imporey Internacional</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-sub">Dashboard avanzado de operación, fulfillment y logística</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">1. Carga de archivo</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Sube tu archivo Excel", type=["xlsx"], label_visibility="collapsed")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
 # CARGA
 # =========================================================
-uploaded_file = st.file_uploader("Sube tu archivo Excel", type=["xlsx"])
-
 if uploaded_file is not None:
     try:
-        with st.spinner("Leyendo archivo..."):
+        with st.spinner("Procesando archivo y construyendo dashboard..."):
             df = pd.read_excel(uploaded_file)
             original_columns = df.columns.tolist()
             df = normalize_dataframe(df)
 
-        st.success("Archivo cargado correctamente")
+        render_upload_success("Archivo cargado correctamente. El dashboard ya está listo para analizarse.")
 
-        with st.expander("Columnas detectadas"):
+        with st.expander("Ver columnas detectadas"):
             st.write(original_columns)
 
-        with st.container():
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            c1, c2, c3, c4 = st.columns(4)
+        # Filtros en sidebar, solo cuando ya existe data
+        with st.sidebar:
+            st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-title">2. Filtros</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-sub">Refina el análisis por segmento operativo</div>', unsafe_allow_html=True)
 
             warehouses = sorted([x for x in df["warehouse"].dropna().unique() if str(x).strip() != ""])
             channels = sorted([x for x in df["channel"].dropna().unique() if str(x).strip() != ""])
             carriers = sorted([x for x in df["carrier"].dropna().unique() if str(x).strip() != ""])
             statuses = sorted([x for x in df["status"].dropna().unique() if str(x).strip() != ""])
 
-            selected_warehouses = c1.multiselect("Almacén", warehouses, default=warehouses)
-            selected_channels = c2.multiselect("Canal", channels, default=channels)
-            selected_carriers = c3.multiselect("Carrier", carriers, default=carriers)
-            selected_statuses = c4.multiselect("Status", statuses, default=statuses)
+            selected_warehouses = st.multiselect("Almacén", warehouses, default=warehouses)
+            selected_channels = st.multiselect("Canal", channels, default=channels)
+            selected_carriers = st.multiselect("Carrier", carriers, default=carriers)
+            selected_statuses = st.multiselect("Status", statuses, default=statuses)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-title">3. Estado del modelo</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-sub">El forecast se genera automáticamente con el historial disponible.</div>', unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         filtered = df.copy()
@@ -758,22 +1149,23 @@ if uploaded_file is not None:
         cancel_rate = filtered["is_cancelled"].mean() * 100 if len(filtered) else 0
         avg_cycle_time = filtered["cycle_time_hours"].mean()
 
-        daily_ops = build_daily_operations(filtered)
-        forecast_df, forecast_model_name = build_forecast_next_period(daily_ops, forecast_days=30)
-        warehouse_perf = build_warehouse_performance(filtered)
-        carrier_perf = build_carrier_performance(filtered)
-        channel_perf = build_channel_performance(filtered)
-        product_perf = build_product_performance(filtered)
-        sla_summary = build_sla_summary(filtered)
+        with st.spinner("Calculando métricas, SLA y forecast..."):
+            daily_ops = build_daily_operations(filtered)
+            forecast_df, forecast_model_name = build_forecast_next_period(daily_ops, forecast_days=30)
+            warehouse_perf = build_warehouse_performance(filtered)
+            carrier_perf = build_carrier_performance(filtered)
+            channel_perf = build_channel_performance(filtered)
+            product_perf = build_product_performance(filtered)
+            sla_summary = build_sla_summary(filtered)
 
-        pct_lt24 = 0
-        if not sla_summary.empty:
-            row_lt24 = sla_summary[sla_summary["sla_bucket"] == "<24 h"]
-            if not row_lt24.empty:
-                pct_lt24 = float(row_lt24.iloc[0]["share"])
+            pct_lt24 = 0
+            if not sla_summary.empty:
+                row_lt24 = sla_summary[sla_summary["sla_bucket"] == "<24 h"]
+                if not row_lt24.empty:
+                    pct_lt24 = float(row_lt24.iloc[0]["share"])
 
-        insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
-        recommendations = generate_recommendations(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
+            insights = generate_insights(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
+            recommendations = generate_recommendations(filtered, warehouse_perf, carrier_perf, channel_perf, product_perf, forecast_df)
 
         # KPIS
         st.subheader("Resumen ejecutivo")
@@ -781,37 +1173,37 @@ if uploaded_file is not None:
         r2 = st.columns(4)
 
         with r1[0]:
-            render_kpi_card("Registros", fmt_int(total_rows), "Total de filas analizadas")
+            render_kpi_card("Registros", fmt_int(total_rows), "Total de filas analizadas", tone=get_kpi_tone("Registros"))
         with r1[1]:
-            render_kpi_card("Pedidos únicos", fmt_int(total_orders), "Órdenes identificadas")
+            render_kpi_card("Pedidos únicos", fmt_int(total_orders), "Órdenes identificadas", tone=get_kpi_tone("Pedidos únicos"))
         with r1[2]:
-            render_kpi_card("Envíos únicos", fmt_int(total_shipments), "Embarques / envíos")
+            render_kpi_card("Envíos únicos", fmt_int(total_shipments), "Embarques / envíos", tone=get_kpi_tone("Envíos únicos"))
         with r1[3]:
-            render_kpi_card("Unidades", fmt_int(total_units), "Volumen total")
+            render_kpi_card("Unidades", fmt_int(total_units), "Volumen total", tone=get_kpi_tone("Unidades"))
 
         with r2[0]:
-            render_kpi_card("% Entregado", fmt_pct(delivered_rate), "Cumplimiento general")
+            render_kpi_card("% Entregado", fmt_pct(delivered_rate), "Cumplimiento general", tone=get_kpi_tone("% Entregado", delivered_rate))
         with r2[1]:
-            render_kpi_card("% Pickeado", fmt_pct(picked_rate), "Avance operativo")
+            render_kpi_card("% Pickeado", fmt_pct(picked_rate), "Avance operativo", tone=get_kpi_tone("% Pickeado", picked_rate))
         with r2[2]:
-            render_kpi_card("% Cancelado", fmt_pct(cancel_rate), "Riesgo operativo")
+            render_kpi_card("% Cancelado", fmt_pct(cancel_rate), "Riesgo operativo", tone=get_kpi_tone("% Cancelado", cancel_rate))
         with r2[3]:
-            render_kpi_card("SLA <24 h", fmt_pct(pct_lt24), "Velocidad de cierre")
+            render_kpi_card("SLA <24 h", fmt_pct(pct_lt24), "Velocidad de cierre", tone=get_kpi_tone("SLA <24 h", pct_lt24))
 
         st.caption(f"Tiempo ciclo promedio: {fmt_hours(avg_cycle_time)}")
 
-        # Forecast summary chips
         if not forecast_df.empty:
             st.markdown(
                 f"""
-                <span class="small-chip">Modelo: {forecast_model_name}</span>
-                <span class="small-chip">Forecast 30 días: {fmt_int(forecast_df['forecast_orders'].sum())} pedidos</span>
-                <span class="small-chip">Promedio diario: {fmt_int(forecast_df['forecast_orders'].mean())}</span>
+                <div class="pill-row">
+                    <span class="small-chip">📈 Modelo: {forecast_model_name}</span>
+                    <span class="small-chip">📦 Forecast 30 días: {fmt_int(forecast_df['forecast_orders'].sum())} pedidos</span>
+                    <span class="small-chip">📅 Promedio diario: {fmt_int(forecast_df['forecast_orders'].mean())}</span>
+                </div>
                 """,
                 unsafe_allow_html=True
             )
 
-        # Tabs
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Resumen",
             "Forecast",
@@ -821,11 +1213,10 @@ if uploaded_file is not None:
         ])
 
         with tab1:
-            c_left, c_right = st.columns(2)
+            c_left, c_right = st.columns([1.3, 1])
 
             with c_left:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Tendencia operativa diaria")
+                render_section_open("Tendencia operativa diaria")
 
                 if not daily_ops.empty:
                     fig_orders = go.Figure()
@@ -833,45 +1224,45 @@ if uploaded_file is not None:
                         x=daily_ops["analysis_date"],
                         y=daily_ops["orders"],
                         mode="lines+markers",
-                        name="Pedidos"
+                        name="Pedidos",
+                        line=dict(color="#173B63", width=3),
+                        marker=dict(size=6)
                     ))
                     fig_orders.add_trace(go.Scatter(
                         x=daily_ops["analysis_date"],
                         y=daily_ops["delivered"],
                         mode="lines",
-                        name="Entregados"
+                        name="Entregados",
+                        line=dict(color="#16a34a", width=2)
                     ))
                     fig_orders.add_trace(go.Scatter(
                         x=daily_ops["analysis_date"],
                         y=daily_ops["cancelled"],
                         mode="lines",
-                        name="Cancelados"
+                        name="Cancelados",
+                        line=dict(color="#dc2626", width=2)
                     ))
                     fig_orders.update_layout(
                         height=420,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         legend_title="Serie",
                         xaxis_title="Fecha",
-                        yaxis_title="Volumen",
-                        template="plotly_white"
+                        yaxis_title="Volumen"
                     )
+                    set_plotly_theme(fig_orders)
                     st.plotly_chart(fig_orders, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+
+                render_section_close()
 
             with c_right:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Hallazgos automáticos")
-                for i, insight in enumerate(insights, start=1):
-                    st.write(f"{i}. {insight}")
+                render_section_open("Hallazgos automáticos")
+                render_insight_list(insights)
 
-                st.subheader("Recomendaciones ejecutivas")
-                for i, rec in enumerate(recommendations, start=1):
-                    st.write(f"{i}. {rec}")
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown('<div class="section-title" style="margin-top:14px;">Recomendaciones ejecutivas</div>', unsafe_allow_html=True)
+                render_recommend_list(recommendations)
+                render_section_close()
 
         with tab2:
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.subheader("Pronóstico del siguiente mes")
+            render_section_open("Pronóstico del siguiente mes")
 
             if not forecast_df.empty and not daily_ops.empty:
                 forecast_total = forecast_df["forecast_orders"].sum()
@@ -888,8 +1279,6 @@ if uploaded_file is not None:
                     render_mini_metric("Rango estimado", f"{fmt_int(forecast_low)} - {fmt_int(forecast_high)}")
 
                 hist = daily_ops[["analysis_date", "orders"]].copy()
-                hist["type"] = "Histórico"
-
                 fc = forecast_df[["analysis_date", "forecast_orders", "lower_bound", "upper_bound"]].copy()
 
                 fig_fc = go.Figure()
@@ -898,7 +1287,7 @@ if uploaded_file is not None:
                     y=hist["orders"],
                     mode="lines",
                     name="Histórico",
-                    line=dict(width=3)
+                    line=dict(width=3, color="#173B63")
                 ))
                 fig_fc.add_trace(go.Scatter(
                     x=fc["analysis_date"],
@@ -914,24 +1303,25 @@ if uploaded_file is not None:
                     mode="lines",
                     line=dict(width=0),
                     fill="tonexty",
-                    name="Banda estimada"
+                    name="Banda estimada",
+                    fillcolor="rgba(59,130,246,0.16)"
                 ))
                 fig_fc.add_trace(go.Scatter(
                     x=fc["analysis_date"],
                     y=fc["forecast_orders"],
                     mode="lines+markers",
                     name="Pronóstico",
-                    line=dict(dash="dash", width=3)
+                    line=dict(dash="dash", width=3, color="#2563eb"),
+                    marker=dict(size=6)
                 ))
 
                 fig_fc.update_layout(
                     height=500,
-                    margin=dict(l=10, r=10, t=10, b=10),
                     xaxis_title="Fecha",
                     yaxis_title="Pedidos",
-                    template="plotly_white",
                     legend_title="Serie"
                 )
+                set_plotly_theme(fig_fc)
                 st.plotly_chart(fig_fc, use_container_width=True)
 
                 forecast_show = fc.copy()
@@ -945,17 +1335,17 @@ if uploaded_file is not None:
                     "lower_bound": "Escenario bajo",
                     "upper_bound": "Escenario alto"
                 })
-                st.dataframe(forecast_show, use_container_width=True)
+                st.dataframe(forecast_show, use_container_width=True, hide_index=True)
             else:
                 st.info("No hay suficiente historial diario para generar un forecast robusto.")
-            st.markdown("</div>", unsafe_allow_html=True)
+
+            render_section_close()
 
         with tab3:
             c1, c2 = st.columns([1, 2])
 
             with c1:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Distribución SLA")
+                render_section_open("Distribución SLA")
                 if not sla_summary.empty:
                     show = sla_summary.copy()
                     show["records"] = show["records"].apply(fmt_int)
@@ -963,36 +1353,36 @@ if uploaded_file is not None:
                     st.dataframe(show, use_container_width=True, hide_index=True)
                 else:
                     st.info("No hay datos suficientes para SLA.")
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with c2:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Registros por rango SLA")
+                render_section_open("Registros por rango SLA")
                 if not sla_summary.empty:
                     fig_sla = px.bar(
                         sla_summary,
                         x="sla_bucket",
                         y="records",
-                        text="records",
-                        template="plotly_white"
+                        text="records"
+                    )
+                    fig_sla.update_traces(
+                        marker_color=["#16a34a", "#f59e0b", "#dc2626"]
                     )
                     fig_sla.update_layout(
                         height=430,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         xaxis_title="Rango SLA",
                         yaxis_title="Registros"
                     )
+                    set_plotly_theme(fig_sla)
                     st.plotly_chart(fig_sla, use_container_width=True)
                 else:
                     st.info("No hay datos suficientes para SLA.")
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
         with tab4:
             c1, c2 = st.columns(2)
 
             with c1:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Almacenes por score")
+                render_section_open("Almacenes por score")
                 if not warehouse_perf.empty:
                     top_wh = warehouse_perf.head(10).sort_values("performance_score", ascending=True)
                     fig_wh = px.bar(
@@ -1000,21 +1390,20 @@ if uploaded_file is not None:
                         x="performance_score",
                         y="warehouse",
                         orientation="h",
-                        text="performance_score",
-                        template="plotly_white"
+                        text="performance_score"
                     )
+                    fig_wh.update_traces(marker_color="#173B63")
                     fig_wh.update_layout(
                         height=450,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         xaxis_title="Score",
                         yaxis_title=""
                     )
+                    set_plotly_theme(fig_wh)
                     st.plotly_chart(fig_wh, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with c2:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Carriers por score")
+                render_section_open("Carriers por score")
                 if not carrier_perf.empty:
                     top_car = carrier_perf.head(10).sort_values("performance_score", ascending=True)
                     fig_car = px.bar(
@@ -1022,23 +1411,22 @@ if uploaded_file is not None:
                         x="performance_score",
                         y="carrier",
                         orientation="h",
-                        text="performance_score",
-                        template="plotly_white"
+                        text="performance_score"
                     )
+                    fig_car.update_traces(marker_color="#2563eb")
                     fig_car.update_layout(
                         height=450,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         xaxis_title="Score",
                         yaxis_title=""
                     )
+                    set_plotly_theme(fig_car)
                     st.plotly_chart(fig_car, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             c3, c4 = st.columns(2)
 
             with c3:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Pedidos por canal")
+                render_section_open("Pedidos por canal")
                 if not channel_perf.empty:
                     top_ch = channel_perf.head(10).sort_values("orders", ascending=True)
                     fig_ch = px.bar(
@@ -1046,21 +1434,20 @@ if uploaded_file is not None:
                         x="orders",
                         y="channel",
                         orientation="h",
-                        text="orders",
-                        template="plotly_white"
+                        text="orders"
                     )
+                    fig_ch.update_traces(marker_color="#0f766e")
                     fig_ch.update_layout(
                         height=430,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         xaxis_title="Pedidos",
                         yaxis_title=""
                     )
+                    set_plotly_theme(fig_ch)
                     st.plotly_chart(fig_ch, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with c4:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Top productos")
+                render_section_open("Top productos")
                 if not product_perf.empty:
                     top_prod = product_perf.head(10).sort_values("units", ascending=True)
                     fig_prod = px.bar(
@@ -1068,24 +1455,23 @@ if uploaded_file is not None:
                         x="units",
                         y="product",
                         orientation="h",
-                        text="units",
-                        template="plotly_white"
+                        text="units"
                     )
+                    fig_prod.update_traces(marker_color="#7c3aed")
                     fig_prod.update_layout(
                         height=430,
-                        margin=dict(l=10, r=10, t=10, b=10),
                         xaxis_title="Unidades",
                         yaxis_title=""
                     )
+                    set_plotly_theme(fig_prod)
                     st.plotly_chart(fig_prod, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
         with tab5:
             d1, d2 = st.columns(2)
 
             with d1:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Detalle de almacenes")
+                render_section_open("Detalle de almacenes")
                 if not warehouse_perf.empty:
                     st.dataframe(
                         format_table_for_display(
@@ -1102,11 +1488,10 @@ if uploaded_file is not None:
                         use_container_width=True,
                         hide_index=True
                     )
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with d2:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Detalle de carriers")
+                render_section_open("Detalle de carriers")
                 if not carrier_perf.empty:
                     st.dataframe(
                         format_table_for_display(
@@ -1123,13 +1508,12 @@ if uploaded_file is not None:
                         use_container_width=True,
                         hide_index=True
                     )
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             d3, d4 = st.columns(2)
 
             with d3:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Detalle de canales")
+                render_section_open("Detalle de canales")
                 if not channel_perf.empty:
                     st.dataframe(
                         format_table_for_display(
@@ -1141,11 +1525,10 @@ if uploaded_file is not None:
                         use_container_width=True,
                         hide_index=True
                     )
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with d4:
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.subheader("Top productos")
+                render_section_open("Top productos")
                 if not product_perf.empty:
                     st.dataframe(
                         format_table_for_display(
@@ -1156,7 +1539,7 @@ if uploaded_file is not None:
                         use_container_width=True,
                         hide_index=True
                     )
-                st.markdown("</div>", unsafe_allow_html=True)
+                render_section_close()
 
             with st.expander("Vista previa de datos procesados"):
                 st.dataframe(filtered.head(100), use_container_width=True)
@@ -1188,7 +1571,9 @@ if uploaded_file is not None:
             mime="application/pdf"
         )
 
+        st.markdown('<div class="footer-note">Dashboard premium listo para uso ejecutivo y presentación a cliente interno o externo.</div>', unsafe_allow_html=True)
+
     except Exception as e:
         st.error(f"Ocurrió un error al procesar el archivo: {e}")
 else:
-    st.info("Sube tu archivo Excel para comenzar.")
+    render_upload_info("Sube un archivo Excel desde la barra lateral para generar el dashboard premium.")
