@@ -607,6 +607,48 @@ def safe_nunique(series):
     return series.dropna().nunique()
 
 
+def normalize_score_weights(raw_weights):
+    # Mejora 7: pesos del performance score ajustables y normalizados.
+    total = sum(raw_weights)
+    if total <= 0:
+        return (0.40, 0.30, 0.20, 0.10)
+    return tuple(w / total for w in raw_weights)
+
+
+def validate_missing_critical_columns(df):
+    # Mejora 4: validación explícita de columnas críticas reconocidas.
+    critical_cols = ["order_id", "shipment_id", "created_on", "status", "warehouse"]
+    missing = []
+    for col in critical_cols:
+        if col not in df.columns or df[col].isna().all():
+            missing.append(col)
+    return missing
+
+
+def common_column_config():
+    # Mejora 3: formato visual sin convertir números a texto; conserva ordenamiento real.
+    return {
+        "performance_score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%.1f"),
+        "orders": st.column_config.NumberColumn("Pedidos", format="%d"),
+        "shipments": st.column_config.NumberColumn("Envíos", format="%d"),
+        "units": st.column_config.NumberColumn("Unidades", format="%d"),
+        "records": st.column_config.NumberColumn("Registros", format="%d"),
+        "delivered_rate": st.column_config.NumberColumn("% Entregado", format="%.1f%%"),
+        "cancelled_rate": st.column_config.NumberColumn("% Cancelado", format="%.1f%%"),
+        "share_orders": st.column_config.NumberColumn("Participación pedidos", format="%.1f%%"),
+        "share_shipments": st.column_config.NumberColumn("Participación envíos", format="%.1f%%"),
+        "share_units": st.column_config.NumberColumn("Participación unidades", format="%.1f%%"),
+        "share": st.column_config.NumberColumn("Participación", format="%.1f%%"),
+        "avg_cycle_hours": st.column_config.NumberColumn("Ciclo promedio", format="%.1f h"),
+        "avg_time_spent": st.column_config.NumberColumn("Tiempo dedicado", format="%.1f h"),
+        "forecast_orders": st.column_config.NumberColumn("Pedidos pronosticados", format="%d"),
+        "lower_bound": st.column_config.NumberColumn("Escenario bajo", format="%d"),
+        "upper_bound": st.column_config.NumberColumn("Escenario alto", format="%d"),
+    }
+
+
+# Mejora 1: cache para evitar reprocesar la normalización en cada interacción.
+@st.cache_data(show_spinner=False)
 def normalize_dataframe(df):
     df = df.copy()
     df = df.rename(columns=COLUMN_MAP)
@@ -659,8 +701,10 @@ def get_status_light(score):
     return "🔴 Riesgo"
 
 
-def calc_score(df_base, volume_col):
+def calc_score(df_base, volume_col, score_weights):
     df = df_base.copy()
+
+    w_delivery, w_cycle, w_cancel, w_volume = score_weights
 
     max_volume = df[volume_col].max() if len(df) else 0
     df["volume_score"] = (df[volume_col] / max_volume) * 100 if max_volume > 0 else 0
@@ -675,17 +719,20 @@ def calc_score(df_base, volume_col):
     else:
         df["cycle_score"] = 100
 
+    # Mejora 7: performance score usa pesos ajustables desde el sidebar.
     df["performance_score"] = (
-        df["delivery_score"] * 0.40 +
-        df["cycle_score"] * 0.30 +
-        df["cancel_score"] * 0.20 +
-        df["volume_score"] * 0.10
+        df["delivery_score"] * w_delivery +
+        df["cycle_score"] * w_cycle +
+        df["cancel_score"] * w_cancel +
+        df["volume_score"] * w_volume
     ).round(1)
 
     df["status_light"] = df["performance_score"].apply(get_status_light)
     return df
 
 
+# Mejora 1: cache para agregaciones diarias pesadas.
+@st.cache_data(show_spinner=False)
 def build_daily_operations(df):
     daily = (
         df.groupby("analysis_date", dropna=True)
@@ -704,9 +751,11 @@ def build_daily_operations(df):
     return daily
 
 
+# Mejora 1: cache para forecast; Mejora 5: métricas MAE/MAPE de calidad del forecast.
+@st.cache_data(show_spinner=False)
 def build_forecast_next_period(daily_ops, forecast_days=30):
     if daily_ops.empty or len(daily_ops) < 14:
-        return pd.DataFrame(), "insuficiente_historial"
+        return pd.DataFrame(), "insuficiente_historial", {"mae_7d": np.nan, "mape_7d": np.nan}
 
     ts = daily_ops[["analysis_date", "orders"]].copy()
     ts = ts.dropna().sort_values("analysis_date")
@@ -714,8 +763,19 @@ def build_forecast_next_period(daily_ops, forecast_days=30):
     ts["orders"] = ts["orders"].fillna(0)
 
     train = ts["orders"].astype(float)
-
     seasonal_periods = 7 if len(train) >= 28 else None
+
+    def calculate_quality(real_values, fitted_values):
+        comp = pd.DataFrame({"real": real_values, "fitted": fitted_values}).dropna().tail(7)
+        if comp.empty:
+            return {"mae_7d": np.nan, "mape_7d": np.nan}
+        mae = (comp["real"] - comp["fitted"]).abs().mean()
+        non_zero = comp[comp["real"] != 0].copy()
+        if non_zero.empty:
+            mape = np.nan
+        else:
+            mape = ((non_zero["real"] - non_zero["fitted"]).abs() / non_zero["real"]).mean() * 100
+        return {"mae_7d": float(mae), "mape_7d": float(mape) if pd.notna(mape) else np.nan}
 
     try:
         if seasonal_periods:
@@ -750,18 +810,21 @@ def build_forecast_next_period(daily_ops, forecast_days=30):
                 "forecast_orders": future_y
             })
 
-            resid_std = np.std(y - (slope * x + intercept)) if len(y) > 2 else 0
+            fitted_linear = pd.Series(slope * x + intercept, index=train.index)
+            forecast_quality = calculate_quality(train, fitted_linear)
+            resid_std = np.std(y - fitted_linear.values) if len(y) > 2 else 0
             forecast_df["lower_bound"] = np.maximum(forecast_df["forecast_orders"] - 1.28 * resid_std, 0)
             forecast_df["upper_bound"] = forecast_df["forecast_orders"] + 1.28 * resid_std
 
-            return forecast_df, "Regresión lineal de respaldo"
+            return forecast_df, "Regresión lineal de respaldo", forecast_quality
         except Exception:
-            return pd.DataFrame(), "error"
+            return pd.DataFrame(), "error", {"mae_7d": np.nan, "mape_7d": np.nan}
 
     forecast_values = model.forecast(forecast_days)
     fitted = model.fittedvalues.reindex(train.index)
     residuals = train - fitted
     resid_std = residuals.std() if len(residuals.dropna()) > 3 else 0
+    forecast_quality = calculate_quality(train, fitted)
 
     forecast_df = pd.DataFrame({
         "analysis_date": forecast_values.index,
@@ -772,10 +835,12 @@ def build_forecast_next_period(daily_ops, forecast_days=30):
     forecast_df["lower_bound"] = np.maximum(forecast_df["forecast_orders"] - 1.28 * resid_std, 0)
     forecast_df["upper_bound"] = forecast_df["forecast_orders"] + 1.28 * resid_std
 
-    return forecast_df, model_name
+    return forecast_df, model_name, forecast_quality
 
 
-def build_warehouse_performance(df):
+# Mejora 1: cache para performance por almacén.
+@st.cache_data(show_spinner=False)
+def build_warehouse_performance(df, score_weights):
     base = (
         df.groupby("warehouse", dropna=True)
         .agg(
@@ -794,11 +859,13 @@ def build_warehouse_performance(df):
     base["cancelled_rate"] = base["cancelled"] * 100
     base["share_orders"] = np.where(total_orders > 0, base["orders"] / total_orders * 100, 0)
     base = base.drop(columns=["delivered", "cancelled"])
-    base = calc_score(base, "orders")
+    base = calc_score(base, "orders", score_weights)
     return base.sort_values("orders", ascending=False)
 
 
-def build_carrier_performance(df):
+# Mejora 1: cache para performance por carrier.
+@st.cache_data(show_spinner=False)
+def build_carrier_performance(df, score_weights):
     base = (
         df.groupby("carrier", dropna=True)
         .agg(
@@ -817,10 +884,12 @@ def build_carrier_performance(df):
     base["cancelled_rate"] = base["cancelled"] * 100
     base["share_shipments"] = np.where(total_shipments > 0, base["shipments"] / total_shipments * 100, 0)
     base = base.drop(columns=["delivered", "cancelled"])
-    base = calc_score(base, "shipments")
+    base = calc_score(base, "shipments", score_weights)
     return base.sort_values("shipments", ascending=False)
 
 
+# Mejora 1: cache para performance por canal.
+@st.cache_data(show_spinner=False)
 def build_channel_performance(df):
     base = (
         df.groupby("channel", dropna=True)
@@ -842,6 +911,8 @@ def build_channel_performance(df):
     return base.sort_values("orders", ascending=False)
 
 
+# Mejora 1: cache para performance por producto.
+@st.cache_data(show_spinner=False)
 def build_product_performance(df):
     base = (
         df.groupby("product", dropna=True)
@@ -862,6 +933,8 @@ def build_product_performance(df):
     return base.sort_values("units", ascending=False)
 
 
+# Mejora 1: cache para resumen SLA.
+@st.cache_data(show_spinner=False)
 def build_sla_summary(df):
     tmp = df[df["sla_bucket"] != "Sin dato"].copy()
     if tmp.empty:
@@ -1075,6 +1148,12 @@ def make_pdf(summary_dict, insights, recommendations, sla_summary, forecast_df, 
     buffer.seek(0)
     return buffer
 
+
+# Mejora 1: cache para lectura del archivo Excel desde bytes.
+@st.cache_data(show_spinner=False)
+def load_excel_from_bytes(file_bytes):
+    return pd.read_excel(BytesIO(file_bytes))
+
 # =========================================================
 # SIDEBAR
 # =========================================================
@@ -1095,9 +1174,14 @@ with st.sidebar:
 if uploaded_file is not None:
     try:
         with st.spinner("Procesando archivo y construyendo dashboard..."):
-            df = pd.read_excel(uploaded_file)
-            original_columns = df.columns.tolist()
-            df = normalize_dataframe(df)
+            raw_df = load_excel_from_bytes(uploaded_file.getvalue())
+            original_columns = raw_df.columns.tolist()
+            df = normalize_dataframe(raw_df)
+
+        # Mejora 4: aviso visible si columnas críticas no fueron reconocidas.
+        missing_critical_cols = validate_missing_critical_columns(df)
+        if missing_critical_cols:
+            st.warning(f"⚠️ Columnas críticas sin datos reconocidos: {missing_critical_cols}. Verifica el formato del Excel.")
 
         render_upload_success("Archivo cargado correctamente. El dashboard ya está listo para analizarse.")
 
@@ -1115,6 +1199,17 @@ if uploaded_file is not None:
             carriers = sorted([x for x in df["carrier"].dropna().unique() if str(x).strip() != ""])
             statuses = sorted([x for x in df["status"].dropna().unique() if str(x).strip() != ""])
 
+            valid_dates = pd.to_datetime(df["analysis_date"], errors="coerce").dropna()
+            if not valid_dates.empty:
+                min_date = valid_dates.min().date()
+                max_date = valid_dates.max().date()
+                # Mejora 2: filtro de fecha en sidebar.
+                selected_date_range = st.date_input("Rango de fechas", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+            else:
+                selected_date_range = None
+                st.info("No se detectaron fechas válidas para filtrar.")
+
+            # Mejora 2: filtros principales en sidebar.
             selected_warehouses = st.multiselect("Almacén", warehouses, default=warehouses)
             selected_channels = st.multiselect("Canal", channels, default=channels)
             selected_carriers = st.multiselect("Carrier", carriers, default=carriers)
@@ -1122,11 +1217,31 @@ if uploaded_file is not None:
             st.markdown("</div>", unsafe_allow_html=True)
 
             st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
-            st.markdown('<div class="sidebar-title">3. Estado del modelo</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-title">3. Pesos del score</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-sub">Ajusta la importancia de cada componente del performance score.</div>', unsafe_allow_html=True)
+            # Mejora 7: sliders para pesos del performance score.
+            with st.expander("Configurar pesos", expanded=False):
+                w_delivery_raw = st.slider("Entrega (%)", 0, 100, 40)
+                w_cycle_raw = st.slider("Ciclo (%)", 0, 100, 30)
+                w_cancel_raw = st.slider("Cancelación (%)", 0, 100, 20)
+                w_volume_raw = st.slider("Volumen (%)", 0, 100, 10)
+                total_weight = w_delivery_raw + w_cycle_raw + w_cancel_raw + w_volume_raw
+                st.caption(f"Total configurado: {total_weight}%")
+            score_weights = normalize_score_weights((w_delivery_raw, w_cycle_raw, w_cancel_raw, w_volume_raw))
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-title">4. Estado del modelo</div>', unsafe_allow_html=True)
             st.markdown('<div class="sidebar-sub">El forecast se genera automáticamente con el historial disponible.</div>', unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         filtered = df.copy()
+        # Mejora 2: aplicar filtro de fechas antes de calcular métricas.
+        if selected_date_range and len(selected_date_range) == 2:
+            start_date, end_date = selected_date_range
+            filtered_dates = pd.to_datetime(filtered["analysis_date"], errors="coerce").dt.date
+            filtered = filtered[(filtered_dates >= start_date) & (filtered_dates <= end_date)]
+
         if selected_warehouses:
             filtered = filtered[filtered["warehouse"].isin(selected_warehouses)]
         if selected_channels:
@@ -1151,9 +1266,9 @@ if uploaded_file is not None:
 
         with st.spinner("Calculando métricas, SLA y forecast..."):
             daily_ops = build_daily_operations(filtered)
-            forecast_df, forecast_model_name = build_forecast_next_period(daily_ops, forecast_days=30)
-            warehouse_perf = build_warehouse_performance(filtered)
-            carrier_perf = build_carrier_performance(filtered)
+            forecast_df, forecast_model_name, forecast_quality = build_forecast_next_period(daily_ops, forecast_days=30)
+            warehouse_perf = build_warehouse_performance(filtered, score_weights)
+            carrier_perf = build_carrier_performance(filtered, score_weights)
             channel_perf = build_channel_performance(filtered)
             product_perf = build_product_performance(filtered)
             sla_summary = build_sla_summary(filtered)
@@ -1203,6 +1318,10 @@ if uploaded_file is not None:
                 """,
                 unsafe_allow_html=True
             )
+            # Mejora 5: métricas de calidad del forecast visibles al usuario.
+            mae_txt = "N/A" if pd.isna(forecast_quality.get("mae_7d")) else f"{forecast_quality.get('mae_7d'):.1f} pedidos"
+            mape_txt = "N/A" if pd.isna(forecast_quality.get("mape_7d")) else f"{forecast_quality.get('mape_7d'):.1f}%"
+            st.caption(f"Calidad del forecast | MAE últimos 7 días: {mae_txt} | MAPE últimos 7 días: {mape_txt}")
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Resumen",
@@ -1278,6 +1397,14 @@ if uploaded_file is not None:
                 with m3:
                     render_mini_metric("Rango estimado", f"{fmt_int(forecast_low)} - {fmt_int(forecast_high)}")
 
+                q1, q2 = st.columns(2)
+                mae_txt = "N/A" if pd.isna(forecast_quality.get("mae_7d")) else f"{forecast_quality.get('mae_7d'):.1f} pedidos"
+                mape_txt = "N/A" if pd.isna(forecast_quality.get("mape_7d")) else f"{forecast_quality.get('mape_7d'):.1f}%"
+                with q1:
+                    render_mini_metric("MAE últimos 7 días", mae_txt)
+                with q2:
+                    render_mini_metric("MAPE últimos 7 días", mape_txt)
+
                 hist = daily_ops[["analysis_date", "orders"]].copy()
                 fc = forecast_df[["analysis_date", "forecast_orders", "lower_bound", "upper_bound"]].copy()
 
@@ -1335,7 +1462,7 @@ if uploaded_file is not None:
                     "lower_bound": "Escenario bajo",
                     "upper_bound": "Escenario alto"
                 })
-                st.dataframe(forecast_show, use_container_width=True, hide_index=True)
+                st.dataframe(forecast_show, use_container_width=True, hide_index=True, column_config=common_column_config())
             else:
                 st.info("No hay suficiente historial diario para generar un forecast robusto.")
 
@@ -1348,9 +1475,8 @@ if uploaded_file is not None:
                 render_section_open("Distribución SLA")
                 if not sla_summary.empty:
                     show = sla_summary.copy()
-                    show["records"] = show["records"].apply(fmt_int)
-                    show["share"] = show["share"].apply(lambda x: f"{x:.1f}%")
-                    st.dataframe(show, use_container_width=True, hide_index=True)
+                    # Mejora 3: column_config conserva tipos numéricos y permite ordenar correctamente.
+                    st.dataframe(show, use_container_width=True, hide_index=True, column_config=common_column_config())
                 else:
                     st.info("No hay datos suficientes para SLA.")
                 render_section_close()
@@ -1473,40 +1599,32 @@ if uploaded_file is not None:
             with d1:
                 render_section_open("Detalle de almacenes")
                 if not warehouse_perf.empty:
+                    # Mejora 3: uso de column_config para mantener tipos y añadir barra visual al score.
                     st.dataframe(
-                        format_table_for_display(
-                            warehouse_perf[[
-                                "warehouse", "status_light", "performance_score", "orders", "shipments",
-                                "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
-                                "avg_time_spent", "share_orders"
-                            ]],
-                            hour_cols=["avg_cycle_hours", "avg_time_spent"],
-                            pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
-                            int_cols=["orders", "shipments", "units"],
-                            score_cols=["performance_score"]
-                        ),
+                        warehouse_perf[[
+                            "warehouse", "status_light", "performance_score", "orders", "shipments",
+                            "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
+                            "avg_time_spent", "share_orders"
+                        ]],
                         use_container_width=True,
-                        hide_index=True
+                        hide_index=True,
+                        column_config=common_column_config()
                     )
                 render_section_close()
 
             with d2:
                 render_section_open("Detalle de carriers")
                 if not carrier_perf.empty:
+                    # Mejora 3: uso de column_config para mantener tipos y añadir barra visual al score.
                     st.dataframe(
-                        format_table_for_display(
-                            carrier_perf[[
-                                "carrier", "status_light", "performance_score", "shipments", "orders",
-                                "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
-                                "avg_time_spent", "share_shipments"
-                            ]],
-                            hour_cols=["avg_cycle_hours", "avg_time_spent"],
-                            pct_cols=["delivered_rate", "cancelled_rate", "share_shipments"],
-                            int_cols=["shipments", "orders", "units"],
-                            score_cols=["performance_score"]
-                        ),
+                        carrier_perf[[
+                            "carrier", "status_light", "performance_score", "shipments", "orders",
+                            "units", "delivered_rate", "cancelled_rate", "avg_cycle_hours",
+                            "avg_time_spent", "share_shipments"
+                        ]],
                         use_container_width=True,
-                        hide_index=True
+                        hide_index=True,
+                        column_config=common_column_config()
                     )
                 render_section_close()
 
@@ -1515,29 +1633,24 @@ if uploaded_file is not None:
             with d3:
                 render_section_open("Detalle de canales")
                 if not channel_perf.empty:
+                    # Mejora 3: column_config conserva ordenamiento numérico.
                     st.dataframe(
-                        format_table_for_display(
-                            channel_perf,
-                            hour_cols=["avg_cycle_hours"],
-                            pct_cols=["delivered_rate", "cancelled_rate", "share_orders"],
-                            int_cols=["orders", "shipments", "units"]
-                        ),
+                        channel_perf,
                         use_container_width=True,
-                        hide_index=True
+                        hide_index=True,
+                        column_config=common_column_config()
                     )
                 render_section_close()
 
             with d4:
-                render_section_open("Top productos")
+                render_section_open("Detalle de productos")
                 if not product_perf.empty:
+                    # Mejora 3: column_config conserva ordenamiento numérico.
                     st.dataframe(
-                        format_table_for_display(
-                            product_perf.head(25),
-                            pct_cols=["delivered_rate", "cancelled_rate", "share_units"],
-                            int_cols=["orders", "shipments", "units"]
-                        ),
+                        product_perf.head(25),
                         use_container_width=True,
-                        hide_index=True
+                        hide_index=True,
+                        column_config=common_column_config()
                     )
                 render_section_close()
 
@@ -1564,12 +1677,18 @@ if uploaded_file is not None:
             forecast_model_name
         )
 
-        st.download_button(
-            label="Descargar PDF avanzado",
-            data=pdf_buffer,
-            file_name="dashboard_avanzado_imporey.pdf",
-            mime="application/pdf"
-        )
+        # Mejora 6: botón de PDF en sidebar para que esté visible sin bajar al final del dashboard.
+        with st.sidebar:
+            st.markdown('<div class="sidebar-panel">', unsafe_allow_html=True)
+            st.markdown('<div class="sidebar-title">5. Exportar reporte</div>', unsafe_allow_html=True)
+            st.download_button(
+                label="⬇️ Descargar reporte PDF",
+                data=pdf_buffer,
+                file_name="dashboard_avanzado_imporey.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown('<div class="footer-note">Dashboard premium listo para uso ejecutivo y presentación a cliente interno o externo.</div>', unsafe_allow_html=True)
 
