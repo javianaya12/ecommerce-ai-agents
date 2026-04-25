@@ -92,6 +92,27 @@ section[data-testid="stSidebar"] * {
     border-radius: 16px !important;
 }
 
+/* Fix visual: hacer visible el nombre del archivo cargado en el sidebar */
+[data-testid="stFileUploaderFile"] {
+    background: #ffffff !important;
+    border: 1px solid rgba(226,232,240,0.95) !important;
+    border-radius: 14px !important;
+}
+
+[data-testid="stFileUploaderFileName"] {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+}
+
+[data-testid="stFileUploaderFileSize"] {
+    color: #64748b !important;
+}
+
+[data-testid="stFileUploaderDeleteBtn"] svg {
+    color: #334155 !important;
+    fill: #334155 !important;
+}
+
 .hero-wrap {
     animation: fadeInUp 0.65s ease-out;
 }
