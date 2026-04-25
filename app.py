@@ -92,25 +92,41 @@ section[data-testid="stSidebar"] * {
     border-radius: 16px !important;
 }
 
-/* Fix visual: hacer visible el nombre del archivo cargado en el sidebar */
-[data-testid="stFileUploaderFile"] {
+/* FIX ÚNICO: hacer visible el nombre del archivo cargado en el sidebar.
+   La regla global del sidebar pintaba todo el texto en claro; por eso aquí usamos
+   un selector más específico para forzar texto oscuro dentro de la tarjeta del archivo. */
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] {
     background: #ffffff !important;
     border: 1px solid rgba(226,232,240,0.95) !important;
     border-radius: 14px !important;
+    opacity: 1 !important;
 }
 
-[data-testid="stFileUploaderFileName"] {
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] * {
+    color: #0f172a !important;
+    opacity: 1 !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFileName"],
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] span,
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] p,
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] div {
     color: #0f172a !important;
     font-weight: 700 !important;
+    opacity: 1 !important;
 }
 
-[data-testid="stFileUploaderFileSize"] {
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFileSize"] {
     color: #64748b !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
 }
 
-[data-testid="stFileUploaderDeleteBtn"] svg {
+section[data-testid="stSidebar"] [data-testid="stFileUploaderDeleteBtn"] svg,
+section[data-testid="stSidebar"] [data-testid="stFileUploaderFile"] svg {
     color: #334155 !important;
     fill: #334155 !important;
+    opacity: 1 !important;
 }
 
 .hero-wrap {
